@@ -1,0 +1,54 @@
+---
+title: "YouTube.js: What it is and how it works"
+description: "YouTube.js is a TypeScript/JavaScript SDK that wraps YouTube's private InnerTube API, giving you programmatic access to videos, search, live chat, and more."
+keywords: ['youtubei.js', 'innertube', 'youtube api', 'javascript', 'typescript']
+---
+
+YouTube.js is an open-source TypeScript/JavaScript client for YouTube's private API, known internally as **InnerTube**. Rather than relying on the public YouTube Data API (which requires an API key and has strict quota limits), YouTube.js communicates directly with the same API that YouTube's own web and mobile clients use — giving you access to a far richer set of data without quota constraints.
+
+<Warning>
+  YouTube.js is not affiliated with, endorsed by, or sponsored by YouTube or Google. All trademarks, logos, and brand names are the property of their respective owners. Use of this library is subject to YouTube's Terms of Service.
+</Warning>
+
+## What is InnerTube?
+
+InnerTube is YouTube's internal API, originally developed to power the YouTube TV client and later adopted across all of YouTube's first-party apps. Because every YouTube client — web, Android, iOS, TV — uses InnerTube under the hood, the API surface is broad and rich. YouTube.js reverse-engineers this API to make it accessible from JavaScript runtimes.
+
+When you call `Innertube.create()`, the library initializes a session by fetching context data (API keys, client version strings, visitor data) from YouTube, exactly as a real browser or app would. This session is then used to sign every subsequent request with the correct client context.
+
+## Key features
+
+- **Video info and streaming** — Retrieve video metadata, thumbnails, descriptions, and deciphered streaming URLs for audio-only, video-only, or muxed formats.
+- **Search** — Full-text search with filters for type, duration, upload date, and video features such as HD, live, and creative commons.
+- **Channels** — Browse channel pages, retrieve subscriber counts, videos, playlists, community posts, and channel metadata.
+- **Playlists** — Fetch playlist contents and manage your own playlists when authenticated.
+- **Comments** — Retrieve video comments sorted by top or newest, including nested replies.
+- **Live chat** — Monitor live stream chat in real time with an event-driven API.
+- **YouTube Music** — Access the full YouTube Music surface: tracks, albums, artists, playlists, and radio.
+- **YouTube Studio** — Manage your channel when authenticated: upload videos, edit metadata, and access analytics.
+- **YouTube Kids** — Access the YouTube Kids content catalog.
+- **Authentication** — Sign in via OAuth2 device code flow to access user-specific data like history, subscriptions, and notifications.
+- **Download** — Stream video or audio data directly as a `ReadableStream<Uint8Array>`.
+
+## Platform support
+
+YouTube.js is designed to be platform-agnostic. The package ships separate entry points that bundle the correct platform shims for each environment:
+
+| Environment | Entry point |
+|---|---|
+| Node.js | `youtubei.js` (default) |
+| Deno | `youtubei.js` (default, via `deno add`) |
+| Browser | `youtubei.js/web` |
+| React Native | `youtubei.js/react-native` |
+| Cloudflare Workers | `youtubei.js/cf-worker` |
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/getting-started/installation">
+    Install youtubei.js for your platform and set up your environment.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/getting-started/quickstart">
+    Create your first Innertube session and make a working API call in minutes.
+  </Card>
+</CardGroup>

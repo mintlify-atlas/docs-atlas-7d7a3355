@@ -1,0 +1,132 @@
+---
+title: "Kids client — YouTube Kids API reference"
+description: "Method reference for the Kids client, which targets the YTKIDS InnerTube surface for child-safe video info, search, channels, and parental channel blocking."
+---
+
+The `Kids` client is accessed via `yt.kids` on an `Innertube` instance. It targets the `YTKIDS` InnerTube client and surfaces a curated set of methods appropriate for child-safe browsing. The `blockChannel` method requires a signed-in parent or guardian account.
+
+## Methods
+
+### `search`
+
+Searches YouTube Kids for videos matching the given query.
+
+```typescript
+search(query: string): Promise<Search>
+```
+
+<ParamField path="query" type="string" required>
+  The search query string.
+</ParamField>
+
+<ResponseField name="Search" type="Promise<Search>">
+  Parsed Kids search results page.
+</ResponseField>
+
+```typescript
+const results = await yt.kids.search('cartoons');
+```
+
+---
+
+### `getInfo`
+
+Retrieves video info and streaming data for a Kids video by video ID.
+
+```typescript
+getInfo(
+  video_id: string,
+  options?: Omit<GetVideoInfoOptions, 'client'>
+): Promise<VideoInfo>
+```
+
+<ParamField path="video_id" type="string" required>
+  The video ID to retrieve info for.
+</ParamField>
+
+<ParamField path="options" type="object">
+  Optional playback options. The `client` key is omitted because `YTKIDS` is always used.
+
+  <Expandable title="options properties">
+    <ParamField path="options.po_token" type="string">
+      Proof of Origin token bound to the video ID. Falls back to the session-level `po_token` when not provided.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ResponseField name="VideoInfo" type="Promise<VideoInfo>">
+  Parsed video info including streaming formats, metadata, and watch-next data for the Kids surface.
+</ResponseField>
+
+```typescript
+const info = await yt.kids.getInfo('dQw4w9WgXcQ');
+console.log(info.basic_info.title);
+```
+
+---
+
+### `getChannel`
+
+Fetches a Kids channel page by channel ID.
+
+```typescript
+getChannel(channel_id: string): Promise<Channel>
+```
+
+<ParamField path="channel_id" type="string" required>
+  The channel ID to retrieve.
+</ParamField>
+
+<ResponseField name="Channel" type="Promise<Channel>">
+  Parsed Kids channel page with videos and channel metadata.
+</ResponseField>
+
+```typescript
+const channel = await yt.kids.getChannel('UCVjNAlnu3blMkF7SNI3C-Zg');
+```
+
+---
+
+### `getHomeFeed`
+
+Fetches the YouTube Kids home feed.
+
+```typescript
+getHomeFeed(): Promise<HomeFeed>
+```
+
+<ResponseField name="HomeFeed" type="Promise<HomeFeed>">
+  Parsed Kids home feed with curated video sections.
+</ResponseField>
+
+```typescript
+const feed = await yt.kids.getHomeFeed();
+```
+
+---
+
+### `blockChannel`
+
+Blocks a channel for all supervised accounts linked to the signed-in parent or guardian. Iterates through every supervised profile and blocks the channel for each one that has not already blocked it.
+
+```typescript
+blockChannel(channel_id: string): Promise<ApiResponse[]>
+```
+
+<ParamField path="channel_id" type="string" required>
+  The channel ID to block across all supervised profiles.
+</ParamField>
+
+<ResponseField name="ApiResponse[]" type="Promise<ApiResponse[]>">
+  An array of raw API responses, one per supervised profile that had the channel blocked. Profiles that had already blocked the channel are skipped and produce no response entry.
+</ResponseField>
+
+<Warning>
+  Requires a signed-in parent or guardian session. Calling this method on an unauthenticated `Innertube` instance throws `InnertubeError: You must be signed in to perform this operation.`
+</Warning>
+
+```typescript
+// Block a channel for all supervised kids profiles
+const responses = await yt.kids.blockChannel('UCVjNAlnu3blMkF7SNI3C-Zg');
+console.log(`Blocked for ${responses.length} profile(s)`);
+```

@@ -1,0 +1,289 @@
+---
+title: "Use YouTube.js across different JavaScript runtimes"
+description: "YouTube.js ships a dedicated entry point for each runtime. Pick the right import path for Node.js, Deno, browser, React Native, or Cloudflare Workers."
+---
+
+YouTube.js is designed to be runtime-agnostic. Rather than shipping one bundle that tries to detect the environment at runtime, the package exposes a dedicated entry point for each supported platform. Each entry point loads the correct implementations of `fetch`, `Cache`, `crypto`, `ReadableStream`, and other host APIs. You pick the right import path for your environment, and the rest of the library works identically.
+
+## Supported platforms
+
+<Tabs>
+  <Tab title="Node.js">
+    Node.js is the default target. Importing from `'youtubei.js'` loads the Node.js platform shim, which uses the Node.js built-in `crypto`, `fs/promises`, and `stream/web` modules.
+
+    ```ts
+    import { Innertube, UniversalCache } from 'youtubei.js';
+
+    const yt = await Innertube.create({
+      cache: new UniversalCache(true),
+    });
+
+    const video = await yt.getInfo('dQw4w9WgXcQ');
+    console.log(video.basic_info.title);
+    ```
+
+    The Node.js shim sets `server: true`, which allows the library to include additional request headers (such as `Origin` and `User-Agent`) that browsers block. Cache is backed by the filesystem; temporary files go to `os.tmpdir()/youtubei.js` and persistent files to `.cache/youtubei.js` relative to the package root.
+
+    <Note>
+      Node.js 18 or later is required. Node.js 18+ ships a built-in `fetch` implementation, so no additional polyfills are needed.
+    </Note>
+  </Tab>
+
+  <Tab title="Deno">
+    When using Deno, import from the `npm:` specifier. The package's `exports` field maps the `"deno"` condition to the Deno-specific platform shim, which uses `Deno.readFile`, `Deno.writeFile`, and `Deno.mkdir` for cache storage.
+
+    ```ts
+    import { Innertube } from 'npm:youtubei.js';
+
+    const yt = await Innertube.create();
+
+    const video = await yt.getInfo('dQw4w9WgXcQ');
+    console.log('Video title is', video.basic_info.title);
+
+    const file = await Deno.open('output.mp4', { write: true, create: true });
+    const stream = await video.download();
+    stream.pipeTo(file.writable);
+    ```
+
+    The Deno shim sets `server: true` and resolves the cache directory from `TMPDIR`, `TMP`, or `TEMP` environment variables, falling back to `/tmp/youtubei.js`.
+
+    <Tip>
+      Run with `--allow-net`, `--allow-read`, and `--allow-write` permissions when downloading files. For API calls only, `--allow-net` is sufficient.
+    </Tip>
+  </Tab>
+
+  <Tab title="Browser">
+    For browser builds, import from `'youtubei.js/web'`. This entry point loads the browser shim, which uses `IndexedDB` for cache storage and the Web Crypto API for hashing.
+
+    ```ts
+    import { Innertube, UniversalCache } from 'youtubei.js/web';
+
+    const yt = await Innertube.create({
+      cache: new UniversalCache(false),
+      generate_session_locally: true,
+    });
+    ```
+
+    The browser shim sets `server: false`, which means the library omits server-only headers like `Origin` and `User-Agent` that browsers refuse to set manually.
+
+    **CORS limitation:** YouTube's API does not send CORS headers permitting requests from arbitrary origins. You must proxy all API calls through your own server. A minimal Deno-based reference proxy is included in the repository at `examples/browser/proxy/deno.ts`.
+
+    ```ts
+    // Route every request through a local proxy that strips __host
+    // and __headers query parameters and forwards the real request.
+    function fetchFn(input: RequestInfo | URL, init?: RequestInit) {
+      const url = typeof input === 'string'
+        ? new URL(input)
+        : input instanceof URL ? input : new URL(input.url);
+
+      url.searchParams.set('__host', url.host);
+      url.host = 'localhost:8080';
+      url.protocol = 'http';
+
+      return fetch(url.toString(), init);
+    }
+
+    const yt = await Innertube.create({
+      fetch: fetchFn,
+      generate_session_locally: true,
+      cache: new UniversalCache(false),
+    });
+    ```
+
+    <Warning>
+      The browser entry point does not bundle a JS runtime evaluator for player script extraction by default. Use `generate_session_locally: true` to skip the remote session fetch, or serve your app alongside the proxy.
+    </Warning>
+  </Tab>
+
+  <Tab title="React Native">
+    Import from `'youtubei.js/react-native'`. React Native does not ship several Web APIs that YouTube.js depends on, so you must install and configure a set of polyfills before importing the library.
+
+    **Install polyfills:**
+
+    ```json
+    {
+      "dependencies": {
+        "base-64": "^1.0.0",
+        "event-target-polyfill": "^0.0.4",
+        "react-native-mmkv": "^2.11.0",
+        "react-native-url-polyfill": "^2.0.0",
+        "text-encoding-polyfill": "^0.6.7",
+        "web-streams-polyfill": "^3.3.2"
+      },
+      "devDependencies": {
+        "@types/base-64": "^1.0.2",
+        "@babel/plugin-syntax-import-attributes": "^7.23.3",
+        "@babel/plugin-transform-export-namespace-from": "^7.23.4"
+      }
+    }
+    ```
+
+    **Configure Metro** to enable package exports resolution:
+
+    ```js
+    // metro.config.js
+    const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
+
+    const config = {
+      resolver: {
+        sourceExts: ['jsx', 'js', 'ts', 'tsx', 'cjs', 'json', 'd.ts'],
+        unstable_enablePackageExports: true,
+      },
+    };
+
+    module.exports = mergeConfig(getDefaultConfig(__dirname), config);
+    ```
+
+    **Configure Babel:**
+
+    ```js
+    // babel.config.js
+    module.exports = {
+      plugins: [
+        ['@babel/plugin-syntax-import-attributes', { deprecatedAssertSyntax: true }],
+        '@babel/plugin-transform-export-namespace-from',
+      ],
+      presets: ['module:@react-native/babel-preset'],
+    };
+    ```
+
+    **Bootstrap the session** — load polyfills and expose MMKV globally before importing the library:
+
+    ```ts
+    import 'event-target-polyfill';
+    import 'web-streams-polyfill';
+    import 'text-encoding-polyfill';
+    import 'react-native-url-polyfill/auto';
+    import { decode, encode } from 'base-64';
+
+    if (!global.btoa) global.btoa = encode;
+    if (!global.atob) global.atob = decode;
+
+    import { MMKV } from 'react-native-mmkv';
+    // @ts-expect-error
+    global.mmkvStorage = MMKV;
+
+    // CustomEvent polyfill
+    class CustomEvent extends Event {
+      #detail;
+      constructor(type: string, options?: CustomEventInit<any[]>) {
+        super(type, options);
+        this.#detail = options?.detail ?? null;
+      }
+      get detail() { return this.#detail; }
+    }
+    global.CustomEvent = CustomEvent as any;
+
+    // === Polyfills loaded — now import youtubei.js ===
+    import Innertube, { UniversalCache } from 'youtubei.js/react-native';
+
+    const innertube = Innertube.create({
+      cache: new UniversalCache(false),
+      generate_session_locally: true,
+    });
+
+    export default innertube;
+    ```
+
+    The React Native shim uses `react-native-mmkv` for cache storage via a globally registered `mmkvStorage` constructor.
+  </Tab>
+
+  <Tab title="Cloudflare Workers">
+    Import from `'youtubei.js/cf-worker'`. The Cloudflare Workers shim uses the Workers `caches` API for cache storage and the global `crypto.randomUUID()` for UUID generation.
+
+    ```ts
+    import { Innertube } from 'youtubei.js/cf-worker';
+
+    export default {
+      async fetch(
+        request: Request,
+        env: Env,
+        ctx: ExecutionContext
+      ): Promise<Response> {
+        // Innertube makes fetch requests during initialization, so it must
+        // be created inside the fetch handler, not at the module top level.
+        const yt = await Innertube.create();
+
+        const video = await yt.getInfo('jNQXAC9IVRw');
+        console.log('Video title is', video.basic_info.title);
+
+        return new Response('OK');
+      },
+    };
+    ```
+
+    <Warning>
+      Do not call `Innertube.create()` at the module top level in a Worker. Workers initialize a new isolate per request and the module-level scope runs before any fetch context is available. Move creation inside the `fetch` handler.
+    </Warning>
+  </Tab>
+
+  <Tab title="Agnostic (bring your own fetch)">
+    The `'youtubei.js/agnostic'` entry point exports the library without any bundled platform shims. Use this when you want to target a runtime not explicitly supported, or when you need full control over every host API.
+
+    You must call `Platform.load()` with a complete `PlatformShim` object before constructing an `Innertube` instance.
+
+    ```ts
+    import { Innertube, Platform } from 'youtubei.js/agnostic';
+    import type { ICache } from 'youtubei.js/agnostic';
+
+    class MyCache implements ICache {
+      async get(key: string): Promise<ArrayBuffer | undefined> { /* ... */ }
+      async set(key: string, value: ArrayBuffer): Promise<void> { /* ... */ }
+      async remove(key: string): Promise<void> { /* ... */ }
+    }
+
+    Platform.load({
+      runtime: 'my-runtime',
+      server: true,
+      Cache: MyCache,
+      sha1Hash: async (data: string) => { /* ... return hex string */ },
+      uuidv4: () => crypto.randomUUID(),
+      eval: (code, env) => { /* sandbox evaluator */ },
+      fetch: globalThis.fetch,
+      Request: globalThis.Request,
+      Response: globalThis.Response,
+      Headers: globalThis.Headers,
+      FormData: globalThis.FormData,
+      File: globalThis.File,
+      ReadableStream: globalThis.ReadableStream,
+      CustomEvent: globalThis.CustomEvent,
+    });
+
+    const yt = await Innertube.create();
+    ```
+
+    The required shim fields are described in the table below.
+
+    | Field | Type | Description |
+    |---|---|---|
+    | `runtime` | `string` | Display name of the platform |
+    | `server` | `boolean` | Whether the runtime is server-side (enables extra request headers) |
+    | `Cache` | `ICache constructor` | Cache implementation for session and player data |
+    | `sha1Hash` | `(data: string) => Promise<string>` | SHA-1 hex digest |
+    | `uuidv4` | `() => string` | Random UUID v4 generator |
+    | `eval` | `(code: string, env: Record<string, any>) => any` | Sandboxed JS evaluator used for player script extraction |
+    | `fetch` | WHATWG `fetch` | HTTP client |
+    | `Request`, `Response`, `Headers`, `FormData`, `File` | WHATWG classes | Standard HTTP primitives |
+    | `ReadableStream` | WHATWG `ReadableStream` | Streaming support |
+    | `CustomEvent` | `CustomEvent` class | Event dispatch |
+  </Tab>
+</Tabs>
+
+## Custom fetch function
+
+All platforms accept an optional `fetch` option in `Innertube.create()`. This is useful for adding authentication headers, routing requests through a proxy, or logging outbound traffic.
+
+```ts
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  fetch: async (input, init) => {
+    // Add a custom header to every request
+    const headers = new Headers(init?.headers);
+    headers.set('X-Custom-Header', 'value');
+    return globalThis.fetch(input, { ...init, headers });
+  },
+});
+```
+
+The `fetch` option accepts the standard WHATWG `fetch` signature: `(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>`.

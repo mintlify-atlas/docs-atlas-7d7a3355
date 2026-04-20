@@ -1,0 +1,189 @@
+---
+title: 'Fetch and iterate playlist items'
+description: 'Load YouTube playlists by ID, read title, author, and item count metadata, and paginate through videos using the continuation API.'
+keywords: ['playlist', 'items', 'pagination', 'continuation', 'youtubei.js']
+---
+
+youtubei.js represents a YouTube playlist as a `Playlist` object built from the InnerTube browse endpoint. You can load any public playlist by its ID, read its metadata, iterate over its videos, and page through long playlists using the standard continuation pattern.
+
+## Fetching a playlist by ID
+
+Call `getPlaylist` with a playlist ID. The method automatically prepends the required `VL` prefix if it is missing, so both bare playlist IDs (e.g., `PLrEnWoR732-C...`) and the prefixed form (`VLPLrEnWoR732-C...`) are accepted.
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create();
+
+// Bare playlist ID — the 'VL' prefix is added automatically
+const playlist = await yt.getPlaylist('PLrEnWoR732-BHlZEfly0Pr2SJGQfvn9GC');
+```
+
+<Note>
+  `getPlaylist` throws an `InnertubeError` if the playlist returns an `ERROR`-type alert (e.g., a private or deleted playlist).
+</Note>
+
+## Reading playlist metadata
+
+Metadata is available on the `info` property, which merges `PlaylistMetadata`, `PlaylistHeader`, `PlaylistSidebarPrimaryInfo`, and `PlaylistSidebarSecondaryInfo`:
+
+<ResponseField name="info.title" type="string | undefined">
+  The playlist title.
+</ResponseField>
+
+<ResponseField name="info.description" type="string | undefined">
+  The playlist description.
+</ResponseField>
+
+<ResponseField name="info.author" type="Author | undefined">
+  The playlist owner. This is populated from either `PlaylistSidebarSecondaryInfo` or `PlaylistHeader`.
+</ResponseField>
+
+<ResponseField name="info.thumbnails" type="Thumbnail[] | undefined">
+  Thumbnail images for the playlist.
+</ResponseField>
+
+<ResponseField name="info.total_items" type="string">
+  The total number of videos in the playlist (as a formatted string, e.g. `"47"`).
+</ResponseField>
+
+<ResponseField name="info.views" type="string">
+  View count string returned by YouTube (format varies by locale).
+</ResponseField>
+
+<ResponseField name="info.last_updated" type="string">
+  A human-readable string indicating when the playlist was last modified.
+</ResponseField>
+
+<ResponseField name="info.privacy" type="string | undefined">
+  Privacy setting of the playlist (`'PUBLIC'`, `'UNLISTED'`, or `'PRIVATE'`). Only available for playlists you own.
+</ResponseField>
+
+<ResponseField name="info.is_editable" type="boolean | undefined">
+  Whether the playlist can be edited. Only available for playlists you own.
+</ResponseField>
+
+```typescript
+const playlist = await yt.getPlaylist('PLrEnWoR732-BHlZEfly0Pr2SJGQfvn9GC');
+
+console.log('Title:', playlist.info.title);
+console.log('Author:', playlist.info.author?.name);
+console.log('Total items:', playlist.info.total_items);
+console.log('Last updated:', playlist.info.last_updated);
+console.log('Views:', playlist.info.views);
+```
+
+## Iterating playlist items
+
+The `items` getter returns an `ObservedArray<PlaylistVideo | ReelItem | ShortsLockupView>` — the list of videos as rendered in the playlist, excluding recommended-video entries.
+
+```typescript
+const playlist = await yt.getPlaylist('PLrEnWoR732-BHlZEfly0Pr2SJGQfvn9GC');
+
+for (const item of playlist.items) {
+  if (item.is(YTNodes.PlaylistVideo)) {
+    console.log(item.title.toString(), '—', item.video_id);
+    console.log('Duration:', item.duration.seconds, 's');
+    console.log('Author:', item.author.name);
+  }
+}
+```
+
+<Info>
+  `playlist.videos` (inherited from `Feed`) returns the raw list including `ContinuationItem` nodes. Prefer `playlist.items` for a clean, typed list of playable videos.
+</Info>
+
+## Pagination
+
+Long playlists are split across multiple pages. Check `has_continuation` and call `getContinuation()` to load the next batch. Each call returns a new `Playlist` instance.
+
+```typescript
+let page = await yt.getPlaylist('PLrEnWoR732-BHlZEfly0Pr2SJGQfvn9GC');
+
+let pageNumber = 1;
+while (true) {
+  console.log(`\n--- Page ${pageNumber} ---`);
+
+  for (const item of page.items) {
+    console.log(item.is(YTNodes.PlaylistVideo) ? item.title.toString() : item.type);
+  }
+
+  if (!page.has_continuation) break;
+
+  page = await page.getContinuation();
+  pageNumber++;
+}
+```
+
+### Collecting all videos
+
+```typescript
+import { YTNodes } from 'youtubei.js';
+
+async function getAllPlaylistVideos(playlistId: string) {
+  const allVideos: YTNodes.PlaylistVideo[] = [];
+
+  let page = await yt.getPlaylist(playlistId);
+
+  while (true) {
+    const videos = page.items.filterType(YTNodes.PlaylistVideo);
+    allVideos.push(...videos);
+
+    if (!page.has_continuation) break;
+    page = await page.getContinuation();
+  }
+
+  return allVideos;
+}
+
+const videos = await getAllPlaylistVideos('PLrEnWoR732-BHlZEfly0Pr2SJGQfvn9GC');
+console.log(`Total fetched: ${videos.length}`);
+```
+
+<Warning>
+  Playlists can contain thousands of videos. Fetching all pages will make many sequential HTTP requests. Consider adding a delay between pages or limiting how many you fetch in a single run.
+</Warning>
+
+## Fetching the user's own playlists
+
+For authenticated sessions, `getPlaylists()` returns the playlists listed in the user's library.
+
+```typescript
+const feed = await yt.getPlaylists();
+
+// items are PlaylistPanel or GridPlaylist nodes
+for (const item of feed.videos) {
+  console.log(item.type, item);
+}
+
+// Paginate if needed
+if (feed.has_continuation) {
+  const next = await feed.getContinuationData();
+}
+```
+
+<Note>
+  `getPlaylists()` requires an active authenticated session. It returns a generic `Feed<IBrowseResponse>` rather than a `Playlist` instance.
+</Note>
+
+## Managing playlists
+
+The `Innertube.playlist` manager provides methods for creating, editing, and deleting playlists:
+
+```typescript
+// Create a new playlist
+await yt.playlist.create('My Playlist', ['videoId1', 'videoId2'], 'PUBLIC');
+
+// Add videos to an existing playlist
+await yt.playlist.addVideos('PLAYLIST_ID', ['videoId3']);
+
+// Remove a video from a playlist
+await yt.playlist.removeVideos('PLAYLIST_ID', [{ videoId: 'videoId1', setVideoId: '...' }]);
+
+// Delete a playlist
+await yt.playlist.delete('PLAYLIST_ID');
+```
+
+<Info>
+  Playlist management methods require an authenticated session (sign-in with cookies).
+</Info>

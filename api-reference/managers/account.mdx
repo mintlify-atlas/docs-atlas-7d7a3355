@@ -1,0 +1,65 @@
+---
+title: "AccountManager — user account information"
+description: "Method reference for AccountManager, which retrieves active channel info, lists all channels on an account, and fetches YouTube settings via yt.account."
+---
+
+`AccountManager` is accessed via `yt.account` on an `Innertube` instance. It provides methods to inspect the active channel, list all channels on a cookie-authenticated account, and retrieve YouTube account settings. All methods require a signed-in session.
+
+<Warning>
+  All `AccountManager` methods require the user to be signed in. Calling them on an unauthenticated `Innertube` instance throws `InnertubeError: You must be signed in to perform this operation.`
+</Warning>
+
+## Methods
+
+### `getInfo`
+
+Retrieves account information for the signed-in user. The method is overloaded: passing `true` returns a list of all channels on the account, while passing `false` (or nothing) returns the active channel as an `AccountInfo` object.
+
+```typescript
+// All channels (cookie auth only)
+getInfo(all: true): Promise<AccountItem[]>
+
+// Active channel only
+getInfo(all?: false): Promise<AccountInfo>
+```
+
+<ParamField path="all" type="boolean" default="false">
+  When `true`, returns all channels linked to the account. This variant is only useful when authenticated via cookie. OAuth sessions always return the single active channel regardless of this flag.
+
+  When `false` or omitted, returns the active channel as `AccountInfo`. Throws `InnertubeError` if the session was created with `on_behalf_of_user`.
+</ParamField>
+
+<ResponseField name="AccountInfo | AccountItem[]" type="Promise<AccountInfo | AccountItem[]>">
+  - `AccountInfo` — the active channel object with display name, avatar, and subscriber count.
+  - `AccountItem[]` — an array of all channels on the account when `all` is `true`. Returns an empty array if none are found.
+</ResponseField>
+
+```typescript
+// Get active channel info
+const info = await yt.account.getInfo();
+console.log(info.name);
+
+// List all channels (cookie auth)
+const channels = await yt.account.getInfo(true);
+for (const channel of channels) {
+  console.log(channel.name?.toString());
+}
+```
+
+---
+
+### `getSettings`
+
+Fetches the YouTube account settings page for the signed-in user.
+
+```typescript
+getSettings(): Promise<Settings>
+```
+
+<ResponseField name="Settings" type="Promise<Settings>">
+  A parsed `Settings` object representing the full YouTube account settings page, including notification preferences, privacy settings, and playback options.
+</ResponseField>
+
+```typescript
+const settings = await yt.account.getSettings();
+```

@@ -1,0 +1,258 @@
+---
+title: "InteractionManager — likes, subscriptions, and more"
+description: "Method reference for InteractionManager: like, dislike, subscribe, post comments, translate text, and set notification preferences via yt.interact."
+---
+
+`InteractionManager` is accessed via `yt.interact` on an `Innertube` instance. It provides methods for all standard viewer interactions: rating videos, subscribing to channels, posting comments, translating comment text, and managing channel notification preferences. **All methods require a signed-in session.**
+
+<Warning>
+  All `InteractionManager` methods require the user to be signed in. Calling them on an unauthenticated `Innertube` instance throws `Error: You must be signed in to perform this operation.`
+</Warning>
+
+## Methods
+
+### `like`
+
+Likes a video on behalf of the signed-in account.
+
+```typescript
+like(video_id: string): Promise<ApiResponse>
+```
+
+<ParamField path="video_id" type="string" required>
+  The ID of the video to like.
+</ParamField>
+
+<ResponseField name="ApiResponse" type="Promise<ApiResponse>">
+  The raw API response. Check `response.success` to confirm the like was recorded.
+</ResponseField>
+
+```typescript
+await yt.interact.like('dQw4w9WgXcQ');
+```
+
+---
+
+### `dislike`
+
+Dislikes a video on behalf of the signed-in account.
+
+```typescript
+dislike(video_id: string): Promise<ApiResponse>
+```
+
+<ParamField path="video_id" type="string" required>
+  The ID of the video to dislike.
+</ParamField>
+
+<ResponseField name="ApiResponse" type="Promise<ApiResponse>">
+  The raw API response. Check `response.success` to confirm the dislike was recorded.
+</ResponseField>
+
+```typescript
+await yt.interact.dislike('dQw4w9WgXcQ');
+```
+
+---
+
+### `removeRating`
+
+Removes a previously set like or dislike from a video, returning it to a neutral state.
+
+```typescript
+removeRating(video_id: string): Promise<ApiResponse>
+```
+
+<ParamField path="video_id" type="string" required>
+  The ID of the video whose rating should be removed.
+</ParamField>
+
+<ResponseField name="ApiResponse" type="Promise<ApiResponse>">
+  The raw API response. Check `response.success` to confirm the rating was cleared.
+</ResponseField>
+
+```typescript
+await yt.interact.removeRating('dQw4w9WgXcQ');
+```
+
+---
+
+### `subscribe`
+
+Subscribes the signed-in account to a channel.
+
+```typescript
+subscribe(channel_id: string): Promise<ApiResponse>
+```
+
+<ParamField path="channel_id" type="string" required>
+  The channel ID to subscribe to.
+</ParamField>
+
+<ResponseField name="ApiResponse" type="Promise<ApiResponse>">
+  The raw API response. Check `response.success` to confirm the subscription was created.
+</ResponseField>
+
+```typescript
+await yt.interact.subscribe('UCVjNAlnu3blMkF7SNI3C-Zg');
+```
+
+---
+
+### `unsubscribe`
+
+Unsubscribes the signed-in account from a channel.
+
+```typescript
+unsubscribe(channel_id: string): Promise<ApiResponse>
+```
+
+<ParamField path="channel_id" type="string" required>
+  The channel ID to unsubscribe from.
+</ParamField>
+
+<ResponseField name="ApiResponse" type="Promise<ApiResponse>">
+  The raw API response. Check `response.success` to confirm the subscription was removed.
+</ResponseField>
+
+```typescript
+await yt.interact.unsubscribe('UCVjNAlnu3blMkF7SNI3C-Zg');
+```
+
+---
+
+### `comment`
+
+Posts a top-level comment on a video.
+
+```typescript
+comment(video_id: string, text: string): Promise<ApiResponse>
+```
+
+<ParamField path="video_id" type="string" required>
+  The ID of the video to comment on.
+</ParamField>
+
+<ParamField path="text" type="string" required>
+  The comment text to post.
+</ParamField>
+
+<ResponseField name="ApiResponse" type="Promise<ApiResponse>">
+  The raw API response. Check `response.success` to confirm the comment was submitted.
+</ResponseField>
+
+```typescript
+await yt.interact.comment('dQw4w9WgXcQ', 'Great video!');
+```
+
+---
+
+### `translate`
+
+Translates a piece of text (typically a comment body) into the specified language using YouTube's built-in comment translation feature.
+
+```typescript
+translate(
+  text: string,
+  target_language: string,
+  args?: { video_id?: string; comment_id?: string }
+): Promise<{
+  success: boolean;
+  status_code: number;
+  translated_content: string;
+  data: any;
+}>
+```
+
+<ParamField path="text" type="string" required>
+  The text to translate.
+</ParamField>
+
+<ParamField path="target_language" type="string" required>
+  An ISO 639-1 language code identifying the target language (e.g. `'en'`, `'fr'`, `'ja'`).
+</ParamField>
+
+<ParamField path="args" type="object">
+  Optional context identifiers that help YouTube scope the translation request.
+
+  <Expandable title="args properties">
+    <ParamField path="args.video_id" type="string">
+      The video ID the comment belongs to.
+    </ParamField>
+    <ParamField path="args.comment_id" type="string">
+      The comment ID of the comment being translated.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ResponseField name="result" type="Promise<object>">
+  <Expandable title="response properties">
+    <ResponseField name="success" type="boolean">
+      Whether the translation request succeeded.
+    </ResponseField>
+    <ResponseField name="status_code" type="number">
+      HTTP status code from the API.
+    </ResponseField>
+    <ResponseField name="translated_content" type="string">
+      The translated text returned by YouTube.
+    </ResponseField>
+    <ResponseField name="data" type="any">
+      The raw API response payload.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```typescript
+const result = await yt.interact.translate(
+  'Hola, ¿cómo estás?',
+  'en',
+  { video_id: 'dQw4w9WgXcQ', comment_id: 'UgxXXX' }
+);
+
+console.log(result.translated_content); // 'Hello, how are you?'
+```
+
+---
+
+### `setNotificationPreferences`
+
+Changes the notification preference for a channel the signed-in account is subscribed to.
+
+```typescript
+setNotificationPreferences(
+  channel_id: string,
+  type: 'PERSONALIZED' | 'ALL' | 'NONE'
+): Promise<ApiResponse>
+```
+
+<ParamField path="channel_id" type="string" required>
+  The ID of the channel to update notification preferences for. The signed-in account must already be subscribed to this channel.
+</ParamField>
+
+<ParamField path="type" type="'PERSONALIZED' | 'ALL' | 'NONE'" required>
+  The notification level to apply.
+
+  | Value | Description |
+  |---|---|
+  | `'PERSONALIZED'` | Receive personalised notifications (YouTube's default). |
+  | `'ALL'` | Receive all notifications for new uploads and activity. |
+  | `'NONE'` | Disable all notifications for this channel. |
+</ParamField>
+
+<ResponseField name="ApiResponse" type="Promise<ApiResponse>">
+  The raw API response. Check `response.success` to confirm the preference was applied.
+</ResponseField>
+
+```typescript
+// Receive all notifications for a channel
+await yt.interact.setNotificationPreferences(
+  'UCVjNAlnu3blMkF7SNI3C-Zg',
+  'ALL'
+);
+
+// Mute all notifications
+await yt.interact.setNotificationPreferences(
+  'UCVjNAlnu3blMkF7SNI3C-Zg',
+  'NONE'
+);
+```

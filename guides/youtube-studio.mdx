@@ -1,0 +1,215 @@
+---
+title: "Manage your YouTube channel with Studio"
+description: "Upload videos, update titles, descriptions, tags, thumbnails, privacy settings, and other video metadata programmatically using the Studio client."
+keywords: ["youtube studio", "upload", "metadata", "privacy", "thumbnail", "channel management"]
+---
+
+YouTube.js includes a `Studio` client that exposes channel and video management operations normally performed through YouTube Studio. It is available on any `Innertube` instance as `yt.studio`. All Studio operations require an authenticated session because they write to your channel on your behalf.
+
+<Warning>
+  Every method on `yt.studio` requires a signed-in account. Calling any method without authentication throws an `InnertubeError`. See the [Authentication guide](/guides/authentication) for how to sign in using the OAuth2 device code flow.
+</Warning>
+
+## Accessing the client
+
+```typescript
+import { Innertube, UniversalCache } from 'youtubei.js';
+
+const yt = await Innertube.create({ cache: new UniversalCache(false) });
+
+// Sign in before using yt.studio
+await yt.session.signIn(/* credentials */);
+```
+
+## Uploading a video
+
+`upload()` handles the entire upload lifecycle: initiating a resumable upload session, streaming the file to YouTube's upload endpoint, and setting the initial metadata — all in one call.
+
+<Steps>
+  <Step title="Sign in">
+    Authenticate before uploading. The example below uses the device code flow and persists credentials to disk.
+
+    ```typescript
+    import { readFileSync, writeFileSync, existsSync } from 'fs';
+    import { Innertube, UniversalCache } from 'youtubei.js';
+
+    const creds_path = './my_yt_creds.json';
+    const creds = existsSync(creds_path)
+      ? JSON.parse(readFileSync(creds_path).toString())
+      : undefined;
+
+    const yt = await Innertube.create({ cache: new UniversalCache(false) });
+
+    yt.session.on('auth-pending', (data) => {
+      console.info(`Go to ${data.verification_url} and enter code ${data.user_code}`);
+    });
+
+    yt.session.on('auth', (data) => {
+      writeFileSync(creds_path, JSON.stringify(data.credentials));
+      console.info('Signed in!');
+    });
+
+    yt.session.on('update-credentials', (data) => {
+      writeFileSync(creds_path, JSON.stringify(data.credentials));
+    });
+
+    await yt.session.signIn(creds);
+    ```
+  </Step>
+  <Step title="Read the video file">
+    ```typescript
+    import { readFileSync } from 'fs';
+
+    const file = readFileSync('./my_awesome_video.mp4');
+    ```
+  </Step>
+  <Step title="Upload with initial metadata">
+    ```typescript
+    const response = await yt.studio.upload(file.buffer, {
+      title: 'Wow!',
+      description: new Date().toString(),
+      privacy: 'UNLISTED'
+    });
+
+    console.info('Upload complete:', response);
+    ```
+  </Step>
+</Steps>
+
+### `UploadedVideoMetadataOptions`
+
+These options are set at upload time. To change them later, use `updateVideoMetadata()`.
+
+| Field | Type | Description |
+|---|---|---|
+| `title` | `string` | Video title. |
+| `description` | `string` | Video description. |
+| `privacy` | `'PUBLIC' \| 'PRIVATE' \| 'UNLISTED'` | Visibility. Defaults to `'PRIVATE'` if omitted. |
+| `is_draft` | `boolean` | Save as a draft without publishing. |
+
+## Updating video metadata
+
+`updateVideoMetadata()` modifies the metadata of an already-uploaded video. Only the fields you provide are changed — omitted fields are left as-is.
+
+```typescript
+import { readFileSync } from 'fs';
+
+const thumbnail = readFileSync('./my_awesome_thumbnail.jpg');
+
+const response = await yt.studio.updateVideoMetadata('VIDEO_ID', {
+  title: 'Artemis Mission',
+  description: 'A nicely written description of the Artemis mission.',
+  tags: ['astronomy', 'NASA', 'APOD'],
+  category: 27,               // 27 = Education
+  license: 'creative_commons',
+  privacy: 'PUBLIC',
+  thumbnail,                  // Uint8Array — replaces the existing thumbnail
+  made_for_kids: false,
+  age_restricted: false,
+});
+
+console.info('Metadata updated:', response.status);
+```
+
+### `UpdateVideoMetadataOptions`
+
+All fields are optional. Only fields you include are sent to the API.
+
+| Field | Type | Description |
+|---|---|---|
+| `title` | `string` | New video title. |
+| `description` | `string` | New video description. |
+| `tags` | `string[]` | Replaces the existing tag list. |
+| `category` | `number` | YouTube category ID (e.g. `27` for Education). |
+| `license` | `string` | `'youtube'` or `'creative_commons'`. |
+| `privacy` | `'PUBLIC' \| 'PRIVATE' \| 'UNLISTED'` | Video visibility. |
+| `thumbnail` | `Uint8Array` | Raw image bytes to use as the custom thumbnail. |
+| `made_for_kids` | `boolean` | Mark the video as made for children. |
+| `age_restricted` | `boolean` | Mark the video as age-restricted. |
+
+<Note>
+  `updateVideoMetadata()` uses the Android InnerTube client internally and encodes the request as a protobuf payload. The `video_id` parameter is the plain video ID, not an encrypted or obfuscated form — pass the same ID you would use with `yt.getInfo()`.
+</Note>
+
+## Privacy settings
+
+Privacy can be set both at upload time and when updating existing videos.
+
+```typescript
+// Make a video public
+await yt.studio.updateVideoMetadata('VIDEO_ID', { privacy: 'PUBLIC' });
+
+// Move a video to private
+await yt.studio.updateVideoMetadata('VIDEO_ID', { privacy: 'PRIVATE' });
+
+// Make a video unlisted
+await yt.studio.updateVideoMetadata('VIDEO_ID', { privacy: 'UNLISTED' });
+```
+
+## Replacing a thumbnail
+
+Pass the raw image bytes as a `Uint8Array`. JPEG and PNG formats are accepted.
+
+```typescript
+import { readFileSync } from 'fs';
+
+const thumbnail = readFileSync('./new_thumbnail.jpg');
+
+await yt.studio.updateVideoMetadata('VIDEO_ID', { thumbnail });
+```
+
+## Method reference
+
+| Method | Parameters | Returns |
+|---|---|---|
+| `upload(file, metadata?)` | `file: BodyInit`, `metadata?: UploadedVideoMetadataOptions` | `Promise<ApiResponse>` |
+| `updateVideoMetadata(video_id, metadata)` | `video_id: string`, `metadata: UpdateVideoMetadataOptions` | `Promise<ApiResponse>` |
+
+## Full upload example
+
+This is the complete upload example from the repository:
+
+```typescript
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { Innertube, UniversalCache } from 'youtubei.js';
+
+const creds_path = './my_yt_creds.json';
+const creds = existsSync(creds_path)
+  ? JSON.parse(readFileSync(creds_path).toString())
+  : undefined;
+
+const yt = await Innertube.create({ cache: new UniversalCache(false) });
+
+yt.session.on('auth-pending', (data: any) => {
+  console.info(
+    `Hello!\nOn your phone or computer, go to ${data.verification_url}` +
+    ` and enter the code ${data.user_code}`
+  );
+});
+
+yt.session.on('auth', (data: any) => {
+  writeFileSync(creds_path, JSON.stringify(data.credentials));
+  console.info('Successfully signed in!');
+});
+
+yt.session.on('update-credentials', (data: any) => {
+  writeFileSync(creds_path, JSON.stringify(data.credentials));
+  console.info('Credentials updated!', data);
+});
+
+await yt.session.signIn(creds);
+
+const file = readFileSync('./my_awesome_video.mp4');
+
+const upload = await yt.studio.upload(file.buffer, {
+  title: 'Wow!',
+  description: new Date().toString(),
+  privacy: 'UNLISTED'
+});
+
+console.info('Done!', upload);
+```
+
+<Tip>
+  Store credentials returned by the `auth` event to disk and pass them back to `signIn()` on subsequent runs. This avoids going through the device code flow every time your script starts.
+</Tip>

@@ -1,0 +1,348 @@
+---
+title: "PlaylistManager — create and edit playlists"
+description: "Method reference for PlaylistManager: create, delete, add or remove videos, reorder items, and update playlist name and description via yt.playlist."
+---
+
+`PlaylistManager` is accessed via `yt.playlist` on an `Innertube` instance. It provides full lifecycle management for YouTube playlists: creating and deleting playlists, adding and removing videos, reordering tracks, saving playlists to your library, and updating titles and descriptions. **All methods require a signed-in session.**
+
+<Warning>
+  All `PlaylistManager` methods require the user to be signed in. Calling them on an unauthenticated `Innertube` instance throws `InnertubeError: You must be signed in to perform this operation.`
+</Warning>
+
+## Methods
+
+### `create`
+
+Creates a new playlist with the given title and an initial set of videos.
+
+```typescript
+create(
+  title: string,
+  video_ids: string[]
+): Promise<{ success: boolean; status_code: number; playlist_id?: string; data: any }>
+```
+
+<ParamField path="title" type="string" required>
+  The title of the new playlist.
+</ParamField>
+
+<ParamField path="video_ids" type="string[]" required>
+  An array of video IDs to add to the playlist on creation.
+</ParamField>
+
+<ResponseField name="result" type="Promise<object>">
+  <Expandable title="response properties">
+    <ResponseField name="success" type="boolean">
+      Whether the operation succeeded.
+    </ResponseField>
+    <ResponseField name="status_code" type="number">
+      HTTP status code from the API.
+    </ResponseField>
+    <ResponseField name="playlist_id" type="string">
+      The ID of the newly created playlist. May be `undefined` if the API did not return one.
+    </ResponseField>
+    <ResponseField name="data" type="any">
+      The raw response payload from the API.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```typescript
+const result = await yt.playlist.create('My Favourites', [
+  'dQw4w9WgXcQ',
+  'jNQXAC9IVRw',
+]);
+
+console.log(result.playlist_id); // 'PLxxxxxxxx...'
+```
+
+---
+
+### `delete`
+
+Permanently deletes a playlist owned by the signed-in account.
+
+```typescript
+delete(
+  playlist_id: string
+): Promise<{ playlist_id: string; success: boolean; status_code: number; data: any }>
+```
+
+<ParamField path="playlist_id" type="string" required>
+  The ID of the playlist to delete.
+</ParamField>
+
+<ResponseField name="result" type="Promise<object>">
+  <Expandable title="response properties">
+    <ResponseField name="playlist_id" type="string">
+      The ID of the deleted playlist, echoed back from the request.
+    </ResponseField>
+    <ResponseField name="success" type="boolean">
+      Whether the deletion succeeded.
+    </ResponseField>
+    <ResponseField name="status_code" type="number">
+      HTTP status code from the API.
+    </ResponseField>
+    <ResponseField name="data" type="any">
+      The raw response payload from the API.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```typescript
+const result = await yt.playlist.delete('PLxxxxxxxxxxxxxxxx');
+console.log(result.success); // true
+```
+
+---
+
+### `addToLibrary`
+
+Saves a playlist to the signed-in user's library (equivalent to liking a playlist).
+
+```typescript
+addToLibrary(playlist_id: string): Promise<ApiResponse>
+```
+
+<ParamField path="playlist_id" type="string" required>
+  The ID of the playlist to save to the library.
+</ParamField>
+
+<ResponseField name="ApiResponse" type="Promise<ApiResponse>">
+  The raw API response. Check `response.success` to confirm the playlist was saved.
+</ResponseField>
+
+```typescript
+await yt.playlist.addToLibrary('PLxxxxxxxxxxxxxxxx');
+```
+
+---
+
+### `removeFromLibrary`
+
+Removes a previously saved playlist from the signed-in user's library.
+
+```typescript
+removeFromLibrary(playlist_id: string): Promise<ApiResponse>
+```
+
+<ParamField path="playlist_id" type="string" required>
+  The ID of the playlist to remove from the library.
+</ParamField>
+
+<ResponseField name="ApiResponse" type="Promise<ApiResponse>">
+  The raw API response. Check `response.success` to confirm the removal.
+</ResponseField>
+
+```typescript
+await yt.playlist.removeFromLibrary('PLxxxxxxxxxxxxxxxx');
+```
+
+---
+
+### `addVideos`
+
+Adds one or more videos to an existing playlist.
+
+```typescript
+addVideos(
+  playlist_id: string,
+  video_ids: string[]
+): Promise<{ playlist_id: string; action_result: any }>
+```
+
+<ParamField path="playlist_id" type="string" required>
+  The ID of the playlist to add videos to.
+</ParamField>
+
+<ParamField path="video_ids" type="string[]" required>
+  An array of video IDs to append to the playlist.
+</ParamField>
+
+<ResponseField name="result" type="Promise<object>">
+  <Expandable title="response properties">
+    <ResponseField name="playlist_id" type="string">
+      The playlist ID, echoed back.
+    </ResponseField>
+    <ResponseField name="action_result" type="any">
+      Raw action results from the API response. Full parsing is not yet implemented.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```typescript
+const result = await yt.playlist.addVideos('PLxxxxxxxxxxxxxxxx', [
+  'dQw4w9WgXcQ',
+  'jNQXAC9IVRw',
+]);
+```
+
+---
+
+### `removeVideos`
+
+Removes one or more videos from a playlist by video ID (or set video ID). The playlist must be editable by the signed-in user.
+
+```typescript
+removeVideos(
+  playlist_id: string,
+  video_ids: string[],
+  use_set_video_ids?: boolean
+): Promise<{ playlist_id: string; action_result: any }>
+```
+
+<ParamField path="playlist_id" type="string" required>
+  The ID of the playlist to remove videos from.
+</ParamField>
+
+<ParamField path="video_ids" type="string[]" required>
+  An array of IDs identifying the videos to remove. By default these are standard video IDs. Pass `use_set_video_ids: true` to match by set video ID instead.
+</ParamField>
+
+<ParamField path="use_set_video_ids" type="boolean" default="false">
+  When `true`, `video_ids` is treated as a list of set video IDs (playlist-specific instance IDs) rather than standard video IDs. Useful when the same video appears multiple times in a playlist.
+</ParamField>
+
+<ResponseField name="result" type="Promise<object>">
+  <Expandable title="response properties">
+    <ResponseField name="playlist_id" type="string">
+      The playlist ID, echoed back.
+    </ResponseField>
+    <ResponseField name="action_result" type="any">
+      Raw action results from the API response.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<Note>
+  This method fetches the full playlist (following continuations if necessary) to resolve the set video IDs required by the API. It throws `InnertubeError` if the playlist is not editable or if none of the given IDs are found.
+</Note>
+
+```typescript
+await yt.playlist.removeVideos('PLxxxxxxxxxxxxxxxx', ['dQw4w9WgXcQ']);
+```
+
+---
+
+### `moveVideo`
+
+Moves a video to a new position within a playlist by placing it immediately after a specified predecessor video.
+
+```typescript
+moveVideo(
+  playlist_id: string,
+  moved_video_id: string,
+  predecessor_video_id: string
+): Promise<{ playlist_id: string; action_result: any }>
+```
+
+<ParamField path="playlist_id" type="string" required>
+  The ID of the playlist containing the videos.
+</ParamField>
+
+<ParamField path="moved_video_id" type="string" required>
+  The video ID of the video to move.
+</ParamField>
+
+<ParamField path="predecessor_video_id" type="string" required>
+  The video ID of the video that should immediately precede the moved video in the new order.
+</ParamField>
+
+<ResponseField name="result" type="Promise<object>">
+  <Expandable title="response properties">
+    <ResponseField name="playlist_id" type="string">
+      The playlist ID, echoed back.
+    </ResponseField>
+    <ResponseField name="action_result" type="any">
+      Raw action results from the API response.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<Note>
+  Like `removeVideos`, this method fetches the full playlist to resolve set video IDs before calling the API. The playlist must be editable.
+</Note>
+
+```typescript
+// Move 'dQw4w9WgXcQ' so it appears after 'jNQXAC9IVRw'
+await yt.playlist.moveVideo(
+  'PLxxxxxxxxxxxxxxxx',
+  'dQw4w9WgXcQ',
+  'jNQXAC9IVRw'
+);
+```
+
+---
+
+### `setName`
+
+Updates the title of an existing playlist.
+
+```typescript
+setName(
+  playlist_id: string,
+  name: string
+): Promise<{ playlist_id: string; action_result: any }>
+```
+
+<ParamField path="playlist_id" type="string" required>
+  The ID of the playlist whose title should be updated.
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  The new title for the playlist.
+</ParamField>
+
+<ResponseField name="result" type="Promise<object>">
+  <Expandable title="response properties">
+    <ResponseField name="playlist_id" type="string">
+      The playlist ID, echoed back.
+    </ResponseField>
+    <ResponseField name="action_result" type="any">
+      Raw action results from the API response.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```typescript
+await yt.playlist.setName('PLxxxxxxxxxxxxxxxx', 'Weekend Playlist');
+```
+
+---
+
+### `setDescription`
+
+Updates the description of an existing playlist.
+
+```typescript
+setDescription(
+  playlist_id: string,
+  description: string
+): Promise<{ playlist_id: string; action_result: any }>
+```
+
+<ParamField path="playlist_id" type="string" required>
+  The ID of the playlist whose description should be updated.
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  The new description text for the playlist.
+</ParamField>
+
+<ResponseField name="result" type="Promise<object>">
+  <Expandable title="response properties">
+    <ResponseField name="playlist_id" type="string">
+      The playlist ID, echoed back.
+    </ResponseField>
+    <ResponseField name="action_result" type="any">
+      Raw action results from the API response.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```typescript
+await yt.playlist.setDescription(
+  'PLxxxxxxxxxxxxxxxx',
+  'Songs I listen to every weekend.'
+);
+```

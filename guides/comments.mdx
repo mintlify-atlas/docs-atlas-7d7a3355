@@ -1,0 +1,257 @@
+---
+title: 'Fetch video and community post comments'
+description: 'Load, sort, and paginate YouTube video comments and community post comments, including reply threads, using the InnerTube comments API.'
+keywords: ['comments', 'replies', 'community posts', 'sort', 'pagination', 'youtubei.js']
+---
+
+youtubei.js provides a `Comments` class for fetching and interacting with both video comments and community post comments. Comments are organized into `CommentThread` objects — each thread contains a top-level comment and an optional list of replies that can be loaded on demand.
+
+## Fetching video comments
+
+Call `getComments` with a video ID. The second argument controls the sort order, and the optional third argument pins a specific comment to the top of the results (used internally when linking to a specific comment).
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create();
+
+// Fetch top comments (default)
+const comments = await yt.getComments('dQw4w9WgXcQ');
+
+// Fetch newest first
+const newest = await yt.getComments('dQw4w9WgXcQ', 'NEWEST_FIRST');
+```
+
+The `sort_by` parameter accepts:
+
+| Value | Description |
+|---|---|
+| `'TOP_COMMENTS'` | Ranked by engagement (default) |
+| `'NEWEST_FIRST'` | Chronological, most recent first |
+
+## The `Comments` object
+
+<ResponseField name="contents" type="ObservedArray<CommentThread>">
+  The list of comment threads on the current page.
+</ResponseField>
+
+<ResponseField name="header" type="CommentsHeader | undefined">
+  The comments section header, which contains the total comment count and the sort menu.
+</ResponseField>
+
+<ResponseField name="has_continuation" type="boolean">
+  Whether more comment pages can be fetched.
+</ResponseField>
+
+```typescript
+const comments = await yt.getComments('dQw4w9WgXcQ');
+
+// Total comment count from header
+console.log('Comments:', comments.header?.comments_count?.toString());
+
+for (const thread of comments.contents) {
+  const comment = thread.comment;
+  if (!comment) continue;
+
+  console.log('Author:', comment.author.name);
+  console.log('Text:', comment.content.toString());
+  console.log('Likes:', comment.vote_count?.toString());
+  console.log('Replies:', thread.reply_count?.toString());
+  console.log('---');
+}
+```
+
+## Comment threads and replies
+
+A `CommentThread` wraps a single top-level comment and its replies. Replies are not included in the initial response — they are fetched separately by calling `getReplies()`.
+
+<ResponseField name="comment" type="Comment | CommentView">
+  The top-level comment node.
+</ResponseField>
+
+<ResponseField name="replies" type="(Comment | CommentView)[]">
+  The reply list. Empty until `getReplies()` is called.
+</ResponseField>
+
+<ResponseField name="has_replies" type="boolean">
+  Whether the thread has any replies.
+</ResponseField>
+
+<ResponseField name="has_continuation" type="boolean">
+  Whether more replies can be fetched after calling `getReplies()`.
+</ResponseField>
+
+```typescript
+const comments = await yt.getComments('dQw4w9WgXcQ');
+
+for (const thread of comments.contents) {
+  if (!thread.has_replies) continue;
+
+  // Load replies — mutates the thread and returns it
+  const threadWithReplies = await thread.getReplies();
+
+  console.log('Top comment:', thread.comment?.content.toString());
+
+  for (const reply of threadWithReplies.replies) {
+    console.log('  Reply:', reply.content.toString());
+  }
+
+  // Paginate through more replies if available
+  if (threadWithReplies.has_continuation) {
+    const morReplies = await threadWithReplies.getContinuation();
+    // morReplies.replies contains the additional replies
+  }
+}
+```
+
+## Paginating comments
+
+Call `getContinuation()` on the `Comments` instance to load the next batch of comment threads. The header is preserved across pages.
+
+```typescript
+let page = await yt.getComments('dQw4w9WgXcQ');
+
+let total = 0;
+while (true) {
+  for (const thread of page.contents) {
+    total++;
+    console.log(thread.comment?.content.toString().substring(0, 60));
+  }
+
+  if (!page.has_continuation) break;
+  page = await page.getContinuation();
+}
+
+console.log('Fetched', total, 'comments');
+```
+
+## Changing sort order at runtime
+
+You can re-sort an existing `Comments` instance without constructing a new one from scratch. `applySort` returns a fresh `Comments` object with the new sort applied.
+
+```typescript
+let comments = await yt.getComments('dQw4w9WgXcQ', 'TOP_COMMENTS');
+
+// Switch to newest first
+comments = await comments.applySort('NEWEST_FIRST');
+
+for (const thread of comments.contents) {
+  console.log(thread.comment?.content.toString());
+}
+```
+
+## Creating comments
+
+`createComment` posts a new top-level comment. This requires an authenticated session.
+
+```typescript
+const comments = await yt.getComments('dQw4w9WgXcQ');
+await comments.createComment('Great video!');
+```
+
+To reply to an existing comment, call `reply()` on a `Comment` node:
+
+```typescript
+const thread = comments.contents[0];
+await thread.comment?.reply('Totally agree!');
+```
+
+## Comment actions
+
+Individual `Comment` nodes support liking, disliking, translating, and replying:
+
+```typescript
+const thread = comments.contents[0];
+const comment = thread.comment;
+
+// Like the comment
+await comment?.like();
+
+// Dislike the comment
+await comment?.dislike();
+
+// Translate to a target language
+const translated = await comment?.translate('es');
+console.log('Translated:', translated.content);
+```
+
+<Info>
+  Like, dislike, reply, and translate actions require an authenticated session. `translate` is available to all users.
+</Info>
+
+## Community post comments
+
+Community posts have their own comments endpoint. Use `getPostComments` to fetch comments for a post, and `getPost` to load the post detail page.
+
+<Steps>
+  <Step title="Get the post detail page">
+    `getPost` requires both the post ID and the channel ID (the `UC…` identifier of the channel that published the post). It returns a generic `Feed` containing the post content.
+
+    ```typescript
+    const postFeed = await yt.getPost('UgkxXXXXXXXXXXXXXXXX', 'UCX6OQ3DkcsbYNE6H8uQQuVA');
+    ```
+  </Step>
+
+  <Step title="Fetch post comments">
+    `getPostComments` returns a `Comments` instance with the same API as video comments.
+
+    ```typescript
+    const postComments = await yt.getPostComments(
+      'UgkxXXXXXXXXXXXXXXXX',    // post ID
+      'UCX6OQ3DkcsbYNE6H8uQQuVA', // channel ID
+      'TOP_COMMENTS'               // optional sort order
+    );
+
+    for (const thread of postComments.contents) {
+      console.log(thread.comment?.content.toString());
+    }
+    ```
+  </Step>
+
+  <Step title="Paginate and sort">
+    `postComments` supports `getContinuation()`, `applySort()`, and `createComment()` in exactly the same way as video comments.
+
+    ```typescript
+    if (postComments.has_continuation) {
+      const nextPage = await postComments.getContinuation();
+    }
+
+    const sorted = await postComments.applySort('NEWEST_FIRST');
+    ```
+  </Step>
+</Steps>
+
+## Full example
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create();
+
+const comments = await yt.getComments('dQw4w9WgXcQ', 'TOP_COMMENTS');
+
+console.log('Total comments:', comments.header?.comments_count?.toString());
+
+// First page
+for (const thread of comments.contents) {
+  const c = thread.comment;
+  if (!c) continue;
+
+  console.log(`[${c.author.name}] ${c.content.toString().substring(0, 80)}`);
+  console.log(`  Likes: ${c.vote_count?.toString() ?? '0'} | Replies: ${thread.reply_count ?? 0}`);
+
+  // Load replies for threads that have them
+  if (thread.has_replies) {
+    const withReplies = await thread.getReplies();
+    for (const reply of withReplies.replies) {
+      console.log(`    ↳ [${reply.author.name}] ${reply.content.toString().substring(0, 60)}`);
+    }
+  }
+}
+
+// Next page
+if (comments.has_continuation) {
+  const page2 = await comments.getContinuation();
+  console.log(`\nPage 2: ${page2.contents.length} more threads`);
+}
+```

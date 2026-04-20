@@ -1,24 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "YouTube.js",
+  "projectType": "sdk-library",
+  "projectName": "YouTube.js",
+  "projectDescription": "A full-featured JavaScript/TypeScript client for YouTube's private InnerTube API, supporting Node.js, Deno, browsers, React Native, and Cloudflare Workers.",
   "theme": "luma",
-  "colors": {
-    "primary": "#eadd96",
-    "light": "#756e66",
-    "dark": "#3d364b"
-  },
-  "favicon": "https://media.brand.dev/66972693-ab69-44fa-8ddf-4df204e7248f.png",
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/LuanRT/YouTube.js"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/LuanRT/YouTube.js"
-    }
-  },
+  "primaryColor": "#eadd96",
+  "lightColor": "#756e66",
+  "darkColor": "#3d364b",
   "navigation": {
     "tabs": [
       {
@@ -94,5 +81,39 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Access to YouTube's private InnerTube API",
+    "Video info, streaming data, and download support",
+    "YouTube Music, YouTube Kids, and YouTube Studio clients",
+    "Live chat monitoring with event-driven API",
+    "OAuth2 authentication via device code flow",
+    "Search with advanced filtering",
+    "Channel, playlist, and comments browsing",
+    "Cross-platform: Node.js, Deno, Browser, React Native, Cloudflare Workers",
+    "Protobuf-based request encoding",
+    "Caching support via UniversalCache"
+  ],
+  "publicApiSurface": [
+    "Innertube.create(config)",
+    "Innertube.getInfo(videoId)",
+    "Innertube.getBasicInfo(videoId)",
+    "Innertube.search(query, filters)",
+    "Innertube.getChannel(id)",
+    "Innertube.getPlaylist(id)",
+    "Innertube.getComments(videoId)",
+    "Innertube.getHomeFeed()",
+    "Innertube.download(videoId, options)",
+    "Innertube.getStreamingData(videoId, options)",
+    "Innertube.music (Music client)",
+    "Innertube.studio (Studio client)",
+    "Innertube.kids (Kids client)",
+    "Innertube.account (AccountManager)",
+    "Innertube.playlist (PlaylistManager)",
+    "Innertube.interact (InteractionManager)",
+    "OAuth2.init(tokens)",
+    "Session.create(config)",
+    "UniversalCache",
+    "YTNodes"
+  ]
 }

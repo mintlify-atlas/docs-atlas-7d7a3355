@@ -1,0 +1,164 @@
+---
+title: "Browse YouTube Kids content programmatically"
+description: "Use the Kids client to search videos, browse the home feed, fetch channel pages, and block channels across supervised profiles on YouTube Kids."
+keywords: ["youtube kids", "kids client", "parental controls", "supervised accounts", "ytkids"]
+---
+
+YouTube.js includes a dedicated `Kids` client that targets the `YTKIDS` InnerTube client, the same endpoint used by the YouTube Kids app. It is available on any `Innertube` instance as `yt.kids` and provides a focused set of methods suited to the Kids platform: a curated home feed organized into age-appropriate categories, video playback info, channel pages, search, and parental control actions such as blocking a channel across supervised profiles.
+
+<Note>
+  The Kids API is entirely separate from the main YouTube API. Content available through `yt.kids` reflects what the YouTube Kids app surfaces — a curated, restricted subset of YouTube content. Standard `yt` methods are not filtered for Kids content.
+</Note>
+
+## Accessing the client
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create();
+const kids = yt.kids;
+```
+
+## Home feed
+
+`getHomeFeed()` returns a `HomeFeed` containing a `KidsCategoriesHeader` with category tabs and a `KidsHomeScreen` with the current category's content.
+
+```typescript
+const feed = await yt.kids.getHomeFeed();
+
+// List available category tabs (e.g. "Explore", "Learning", "Gaming")
+console.info(feed.categories);
+
+// Browse contents of the current (default) category
+console.info(feed.contents);
+```
+
+### Switching categories
+
+Use `selectCategoryTab()` to load a different category. Pass either the tab title string or a `KidsCategoryTab` object.
+
+```typescript
+const feed = await yt.kids.getHomeFeed();
+
+// List categories first
+console.info(feed.categories); // e.g. ['Explore', 'Learning', 'Gaming', 'Music']
+
+// Load the "Learning" category
+const learning = await feed.selectCategoryTab('Learning');
+console.info(learning.contents);
+```
+
+## Searching
+
+`search()` returns a `Search` object with an `estimated_results` count and a `contents` array of result nodes.
+
+```typescript
+const results = await yt.kids.search('dinosaurs');
+
+console.info(results.estimated_results);
+console.info(results.contents); // Array of video/channel nodes
+```
+
+<Info>
+  Kids search does not support the type or duration filters available on the main YouTube `search()` method. Results are pre-filtered by the Kids platform to age-appropriate content.
+</Info>
+
+## Video info
+
+`getInfo()` returns a `VideoInfo` (Kids-specific) that extends the shared `MediaInfo` mixin. It contains playback data along with Kids-specific metadata.
+
+```typescript
+const info = await yt.kids.getInfo('VIDEO_ID');
+
+// Basic video metadata
+console.info(info.basic_info.title);
+console.info(info.basic_info.author);
+console.info(info.basic_info.duration);
+
+// Slim metadata panel shown in the Kids player
+console.info(info.slim_video_metadata);
+
+// Related videos shown alongside the player
+console.info(info.watch_next_feed);
+```
+
+### Selecting a stream format
+
+Because `VideoInfo` extends `MediaInfo`, format selection and download work the same way as for regular videos:
+
+```typescript
+const info = await yt.kids.getInfo('VIDEO_ID');
+const format = info.chooseFormat({ type: 'video+audio', quality: 'best' });
+console.info(format?.url);
+```
+
+## Channel pages
+
+`getChannel()` returns a `Channel` object with the channel header and a page of video content.
+
+```typescript
+const channel = await yt.kids.getChannel('CHANNEL_ID');
+
+console.info(channel.header);   // C4TabbedHeader — name, avatar, subscriber count
+console.info(channel.contents); // ItemSection with the channel's videos
+```
+
+### Paginating channel content
+
+```typescript
+let channel = await yt.kids.getChannel('CHANNEL_ID');
+
+while (channel.has_continuation) {
+  channel = await channel.getContinuation();
+  console.info(channel.contents);
+}
+```
+
+## Blocking a channel
+
+`blockChannel()` retrieves the list of supervised profiles linked to the signed-in parent account and blocks the specified channel for any profile that has not already blocked it. It returns an array of raw API responses, one per affected profile.
+
+```typescript
+// Requires authentication
+const responses = await yt.kids.blockChannel('CHANNEL_ID');
+console.info(`Blocked across ${responses.length} profile(s).`);
+```
+
+<Warning>
+  `blockChannel()` requires a signed-in session from a parent account with supervised profiles. Calling it without authentication throws an `InnertubeError`. See the [Authentication guide](/guides/authentication) to sign in.
+</Warning>
+
+## Content restrictions
+
+The `YTKIDS` client enforces content restrictions on the server side. Requests that would succeed through the main `WEB` client may return empty results or errors through the Kids client if the content is not available in the Kids catalog. This includes:
+
+- Age-restricted or mature content
+- Content that has not been approved for the Kids platform
+- Videos from channels that have been blocked by a parent
+
+There is no way to override these restrictions through the API — they are enforced by YouTube's backend for Kids requests.
+
+## Method reference
+
+| Method | Parameters | Returns |
+|---|---|---|
+| `getHomeFeed()` | — | `Promise<HomeFeed>` |
+| `search(query)` | `query: string` | `Promise<Search>` |
+| `getInfo(video_id, options?)` | `string` | `Promise<VideoInfo>` |
+| `getChannel(channel_id)` | `string` | `Promise<Channel>` |
+| `blockChannel(channel_id)` | `string` | `Promise<ApiResponse[]>` |
+
+### `HomeFeed` instance methods
+
+| Method / Property | Description |
+|---|---|
+| `feed.categories` | `string[]` of available category tab names |
+| `feed.contents` | `KidsHomeScreen` with the active category's videos |
+| `feed.selectCategoryTab(tab)` | Loads a category tab; returns a new `HomeFeed` |
+
+### `Channel` instance properties
+
+| Property | Description |
+|---|---|
+| `channel.has_continuation` | `true` if more pages are available |
+| `channel.getContinuation()` | Fetches the next page; returns a new `Channel` |

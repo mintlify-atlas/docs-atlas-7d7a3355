@@ -1,0 +1,270 @@
+---
+title: 'Retrieve video info and download streams'
+description: 'Fetch video metadata, streaming formats, and download audio or video from YouTube using getInfo, getBasicInfo, chooseFormat, and download.'
+keywords: ['video info', 'download', 'streaming', 'format', 'audio', 'video', 'youtubei.js']
+---
+
+Every interaction with a YouTube video in youtubei.js begins with one of the video-info methods. These methods return a `VideoInfo` object that exposes metadata, streaming data, playability status, and methods for downloading content. The right method to use depends on how much information you need and whether you want to interact with the watch-next feed alongside the player.
+
+## `getInfo` vs `getBasicInfo`
+
+Both methods return the same `VideoInfo` type, but they make different numbers of network requests.
+
+| Method | Requests | Returns |
+|---|---|---|
+| `getBasicInfo(video_id)` | 1 (player endpoint only) | Streaming data, basic metadata |
+| `getInfo(target)` | 2 (player + watch-next endpoint) | Everything above + related videos, like/dislike counts, live chat, autoplay |
+
+Use `getBasicInfo` when you only need to download or inspect streaming data. Use `getInfo` when you need the full watch-page experience — related videos, comments entry point, playlist context, or like/dislike state.
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create();
+
+// Lightweight — one request, no watch-next feed
+const basicInfo = await yt.getBasicInfo('dQw4w9WgXcQ');
+
+// Full — two requests, includes related videos and like counts
+const info = await yt.getInfo('dQw4w9WgXcQ');
+```
+
+Both methods accept an optional second argument, `GetVideoInfoOptions`, that lets you specify an InnerTube client and a proof-of-origin token:
+
+```typescript
+const info = await yt.getBasicInfo('dQw4w9WgXcQ', {
+  client: 'IOS',     // 'IOS' | 'WEB' | 'ANDROID' | 'TV' | 'YTMUSIC' | ...
+  po_token: '...'   // optional proof-of-origin token
+});
+```
+
+## `VideoInfo` properties
+
+The returned `VideoInfo` (and its `MediaInfo` base class) exposes the following top-level properties:
+
+<ResponseField name="basic_info" type="object">
+  Core metadata derived from the player response and microformat: `id`, `title`, `description`, `thumbnail`, `duration`, `view_count`, `channel`, `author`, `is_live`, `is_unlisted`, `is_family_safe`, `category`, `like_count`, `is_liked`, `is_disliked`, `start_timestamp`, `end_timestamp`, and more.
+</ResponseField>
+
+<ResponseField name="streaming_data" type="IStreamingData | undefined">
+  Contains `formats` (combined video+audio) and `adaptive_formats` (separate video-only or audio-only tracks), plus `dash_manifest_url` and `hls_manifest_url` for live streams.
+</ResponseField>
+
+<ResponseField name="playability_status" type="IPlayabilityStatus | undefined">
+  Indicates whether the video can be played. The `status` field is one of `'OK'`, `'UNPLAYABLE'`, `'LOGIN_REQUIRED'`, `'ERROR'`, etc. The `error_screen` field may contain a trailer when the video is a paywalled film.
+</ResponseField>
+
+<ResponseField name="captions" type="PlayerCaptionsTracklist | undefined">
+  Caption tracks available for the video, including language codes and auto-generated tracks.
+</ResponseField>
+
+<ResponseField name="primary_info" type="VideoPrimaryInfo | undefined">
+  Available only from `getInfo()`. Contains the like/dislike buttons, publish date, and the video title as rendered on the watch page.
+</ResponseField>
+
+<ResponseField name="secondary_info" type="VideoSecondaryInfo | undefined">
+  Available only from `getInfo()`. Contains the channel subscription button, description, and owner details.
+</ResponseField>
+
+<ResponseField name="watch_next_feed" type="ObservedArray | undefined">
+  Available only from `getInfo()`. The list of recommended videos shown in the sidebar.
+</ResponseField>
+
+```typescript
+const info = await yt.getInfo('dQw4w9WgXcQ');
+
+console.log(info.basic_info.title);
+console.log(info.basic_info.duration);       // seconds
+console.log(info.basic_info.view_count);
+console.log(info.basic_info.channel?.name);
+console.log(info.playability_status?.status); // 'OK' | 'UNPLAYABLE' | ...
+
+if (info.streaming_data) {
+  console.log('Formats:', info.streaming_data.formats.length);
+  console.log('Adaptive formats:', info.streaming_data.adaptive_formats.length);
+}
+```
+
+## Choosing a format with `chooseFormat`
+
+`VideoInfo` inherits `chooseFormat(options)` from `MediaInfo`. It selects the best matching `Format` object from `streaming_data` according to the provided `FormatOptions`.
+
+<ParamField body="type" type="'video' | 'audio' | 'video+audio'" default="'video+audio'">
+  Whether to select a combined stream, a video-only adaptive track, or an audio-only adaptive track.
+</ParamField>
+
+<ParamField body="quality" type="string" default="'best'">
+  Target quality label such as `'360p'`, `'720p'`, `'1080p'`, `'4320p'`, `'best'`, or `'bestefficiency'`. `'best'` picks the highest bitrate; `'bestefficiency'` picks the lowest bitrate that still matches.
+</ParamField>
+
+<ParamField body="format" type="string" default="'mp4'">
+  Container format to match against the MIME type, e.g. `'mp4'`, `'webm'`. Use `'any'` to skip this filter.
+</ParamField>
+
+<ParamField body="codec" type="string">
+  Codec string to match against the MIME type, e.g. `'avc'`, `'vp9'`, `'av01'` for video; `'opus'`, `'mp4a'` for audio.
+</ParamField>
+
+<ParamField body="itag" type="number">
+  Select a specific format by its itag. When provided, all other options except `client` are ignored.
+</ParamField>
+
+<ParamField body="language" type="string" default="'original'">
+  Language code for audio tracks on multi-audio videos.
+</ParamField>
+
+```typescript
+const info = await yt.getBasicInfo('dQw4w9WgXcQ');
+
+// Select the best 1080p MP4 combined stream
+const format = info.chooseFormat({
+  type: 'video+audio',
+  quality: '1080p',
+  format: 'mp4'
+});
+
+// Decipher the streaming URL
+format.url = await format.decipher(yt.session.player);
+console.log('Stream URL:', format.url);
+```
+
+## Getting a direct stream URL with `getStreamingData`
+
+When you only need a deciphered streaming URL and not the full `VideoInfo` object, use `Innertube.getStreamingData`. It calls `getBasicInfo` internally and returns the selected `Format` object with `.url` already populated.
+
+```typescript
+const format = await yt.getStreamingData('dQw4w9WgXcQ', {
+  type: 'audio',
+  quality: 'best',
+  format: 'mp4'
+});
+
+console.log('Direct URL:', format.url);
+console.log('MIME type:', format.mime_type);
+console.log('Bitrate:', format.bitrate);
+```
+
+<Note>
+  The returned URL contains an expiry timestamp. Fetch the content promptly after calling `getStreamingData`.
+</Note>
+
+## Downloading with `download`
+
+`Innertube.download` and `VideoInfo.download` return a `ReadableStream<Uint8Array>`. This is the simplest way to save video or audio to disk.
+
+`DownloadOptions` extends `FormatOptions` with one additional field:
+
+<ParamField body="range" type="{ start: number; end: number }">
+  Download only a byte range of the stream. When omitted, the entire file is downloaded. Providing a range forces chunk-based downloading regardless of the stream type.
+</ParamField>
+
+<Steps>
+  <Step title="Install dependencies">
+    The example below uses Node.js built-in `fs` streams. No additional packages are needed.
+  </Step>
+
+  <Step title="Create the Innertube instance">
+    ```typescript
+    import { Innertube, Utils } from 'youtubei.js';
+    import { createWriteStream } from 'fs';
+
+    const yt = await Innertube.create();
+    ```
+  </Step>
+
+  <Step title="Download a video+audio stream">
+    ```typescript
+    const stream = await yt.download('dQw4w9WgXcQ', {
+      type: 'video+audio', // combined muxed stream
+      quality: 'best',
+      format: 'mp4'
+    });
+
+    const file = createWriteStream('video.mp4');
+
+    for await (const chunk of Utils.streamToIterable(stream)) {
+      file.write(chunk);
+    }
+
+    file.end();
+    console.log('Download complete');
+    ```
+  </Step>
+
+  <Step title="Download audio only">
+    ```typescript
+    const audioStream = await yt.download('dQw4w9WgXcQ', {
+      type: 'audio',
+      quality: 'best',
+      format: 'mp4'
+    });
+
+    const audioFile = createWriteStream('audio.m4a');
+
+    for await (const chunk of Utils.streamToIterable(audioStream)) {
+      audioFile.write(chunk);
+    }
+
+    audioFile.end();
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  Downloading live streams (`is_live: true`) and post-live DVR videos is not supported. These streams are split into 5-second segments and must be assembled with an external tool such as ffmpeg. Use `streaming_data.hls_manifest_url` or `streaming_data.dash_manifest_url` instead.
+</Warning>
+
+### Calling `download` from a `VideoInfo` instance
+
+If you already have a `VideoInfo` object from `getBasicInfo` or `getInfo`, you can call `.download()` directly on it to avoid a second request:
+
+```typescript
+const info = await yt.getBasicInfo('dQw4w9WgXcQ');
+
+console.log('Title:', info.basic_info.title);
+
+const stream = await info.download({
+  type: 'video+audio',
+  quality: '720p',
+  format: 'mp4'
+});
+```
+
+## DASH manifest generation
+
+For players that support DASH (e.g., Shaka Player, dash.js), you can generate a manifest from the streaming data:
+
+```typescript
+const info = await yt.getBasicInfo('dQw4w9WgXcQ');
+
+const manifest = await info.toDash();
+
+// Optionally filter formats or transform URLs
+const filteredManifest = await info.toDash({
+  format_filter: (fmt) => fmt.has_video && fmt.quality_label === '1080p',
+  url_transformer: (url) => {
+    url.searchParams.set('my_param', 'value');
+    return url;
+  }
+});
+```
+
+## YouTube Shorts with `getShortsVideoInfo`
+
+For Shorts, use `getShortsVideoInfo` instead of `getInfo`. It fetches the reel watch endpoint and sequence data specific to the Shorts player.
+
+```typescript
+const shortsInfo = await yt.getShortsVideoInfo('SHORT_VIDEO_ID');
+
+console.log(shortsInfo.basic_info.title);
+
+const stream = await shortsInfo.download({
+  type: 'video+audio',
+  quality: 'best',
+  format: 'mp4'
+});
+```
+
+<Tip>
+  `getShortsVideoInfo` accepts an optional `client` parameter (`InnerTubeClient`) as its second argument to override which InnerTube client is used for the request.
+</Tip>

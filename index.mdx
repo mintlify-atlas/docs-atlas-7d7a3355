@@ -1,97 +1,92 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "YouTube.js: JavaScript client for YouTube's InnerTube API"
+description: "YouTube.js is a full-featured TypeScript/JavaScript SDK for YouTube's private InnerTube API, supporting Node.js, Deno, browsers, React Native, and Cloudflare Workers."
 ---
 
-## Setting up
+YouTube.js gives you programmatic access to YouTube — search videos, retrieve streaming data, browse channels, monitor live chats, manage playlists, and more — all through a clean TypeScript API that works across every major JavaScript runtime.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/getting-started/installation">
+    Install youtubei.js for Node.js, Deno, browser, React Native, or Cloudflare Workers.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quickstart" icon="rocket" href="/getting-started/quickstart">
+    Create your first Innertube session and make your first API call in minutes.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="API Reference" icon="code" href="/api-reference/innertube">
+    Explore the full Innertube class, clients, and managers API surface.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Guides" icon="book-open" href="/guides/video-info-and-download">
+    Learn how to download videos, search, browse channels, and use live chat.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What you can build
 
-Everything you need to create world-class documentation.
+YouTube.js covers the full breadth of YouTube's API surface, from basic video retrieval to real-time live chat processing.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={2}>
+  <Card title="Video & Streaming" icon="play" href="/guides/video-info-and-download">
+    Retrieve video metadata, deciphered stream URLs, and download video or audio tracks.
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="Search" icon="magnifying-glass" href="/guides/search">
+    Search YouTube with filters for type, duration, upload date, and video features.
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="Channels & Playlists" icon="list" href="/guides/channels">
+    Browse channel pages, fetch subscriber counts, and iterate through playlist items.
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
+  <Card title="Live Chat" icon="comments" href="/guides/live-chat">
+    Monitor live stream chat in real time with an event-driven API.
   </Card>
-</Columns>
+  <Card title="YouTube Music" icon="music" href="/guides/youtube-music">
+    Access YouTube Music for tracks, albums, artists, and playlists.
+  </Card>
+  <Card title="Authentication" icon="lock" href="/guides/authentication">
+    Authenticate using OAuth2 device code flow to access user-specific data.
+  </Card>
+</CardGroup>
 
-## Need inspiration?
+## Quick example
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create();
+
+// Search YouTube
+const results = await yt.search('lofi hip hop');
+console.log(results.videos);
+
+// Get video info and streaming URL
+const info = await yt.getInfo('dQw4w9WgXcQ');
+const format = await yt.getStreamingData('dQw4w9WgXcQ', { type: 'audio', quality: 'best' });
+console.log(format.url);
+```
+
+## Get started
+
+<Steps>
+  <Step title="Install the package">
+    Install `youtubei.js` from npm, Yarn, or your package manager of choice.
+    ```bash
+    npm install youtubei.js
+    ```
+  </Step>
+  <Step title="Create an Innertube session">
+    Import and initialize the `Innertube` client. Sessions are lightweight and can be reused.
+    ```typescript
+    import { Innertube } from 'youtubei.js';
+    const yt = await Innertube.create();
+    ```
+  </Step>
+  <Step title="Make your first call">
+    Call any method on the session to retrieve YouTube data.
+    ```typescript
+    const info = await yt.getBasicInfo('dQw4w9WgXcQ');
+    console.log(info.basic_info.title);
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  YouTube.js uses YouTube's private InnerTube API. This project is not affiliated with, endorsed by, or sponsored by YouTube or Google.
+</Note>

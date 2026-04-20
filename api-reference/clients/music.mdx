@@ -1,0 +1,352 @@
+---
+title: "Music client — YouTube Music API reference"
+description: "Complete method reference for the Music client, which wraps YouTube Music's InnerTube API for search, playback, albums, artists, playlists, and library access."
+---
+
+The `Music` client is accessed via `yt.music` on an `Innertube` instance. It targets the `YTMUSIC` InnerTube client and exposes methods for every major YouTube Music surface: track info, search, browse, and library management. No authentication is required for most read operations, but library-related methods require a signed-in session.
+
+## `MusicSearchFilters`
+
+The `search` method accepts an optional filters object of this type.
+
+```typescript
+type MusicSearchType = 'all' | 'song' | 'video' | 'album' | 'playlist' | 'artist';
+
+type MusicSearchFilters = {
+  type?: MusicSearchType;
+};
+```
+
+## Methods
+
+### `getInfo`
+
+Retrieves track info and playback data. Passing a `MusicTwoRowItem` automatically starts a radio for that item.
+
+```typescript
+getInfo(
+  target: string | MusicTwoRowItem | MusicResponsiveListItem | NavigationEndpoint,
+  options?: Omit<GetVideoInfoOptions, 'client'>
+): Promise<TrackInfo>
+```
+
+<ParamField path="target" type="string | MusicTwoRowItem | MusicResponsiveListItem | NavigationEndpoint" required>
+  A video ID string, a list item parsed from a Music response, or a `NavigationEndpoint`. Passing a `MusicTwoRowItem` automatically initiates a radio session.
+</ParamField>
+
+<ParamField path="options" type="object">
+  Optional playback options. The `client` key is omitted because `YTMUSIC` is always used.
+
+  <Expandable title="options properties">
+    <ParamField path="options.po_token" type="string">
+      Proof of Origin token bound to the video ID. Falls back to the session-level `po_token` when not provided.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ResponseField name="TrackInfo" type="Promise<TrackInfo>">
+  Parsed track info including streaming formats, metadata, and watch-next data.
+</ResponseField>
+
+```typescript
+// By video ID
+const track = await yt.music.getInfo('dQw4w9WgXcQ');
+
+// From a list item (starts radio)
+const feed = await yt.music.getHomeFeed();
+const item = feed.sections[0].contents[0]; // MusicTwoRowItem
+const track = await yt.music.getInfo(item);
+```
+
+---
+
+### `search`
+
+Searches YouTube Music. When `filters.type` is omitted or set to `'all'`, the full catalogue is queried.
+
+```typescript
+search(query: string, filters?: MusicSearchFilters): Promise<Search>
+```
+
+<ParamField path="query" type="string" required>
+  The search query string.
+</ParamField>
+
+<ParamField path="filters" type="MusicSearchFilters">
+  Optional filter object. When `type` is provided and is not `'all'`, the results are scoped to that content type.
+
+  <Expandable title="filter properties">
+    <ParamField path="filters.type" type="'all' | 'song' | 'video' | 'album' | 'playlist' | 'artist'" default="'all'">
+      Restricts results to a specific content type.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ResponseField name="Search" type="Promise<Search>">
+  Parsed search results page with typed shelves for each content category.
+</ResponseField>
+
+```typescript
+// Unfiltered search
+const results = await yt.music.search('Daft Punk');
+
+// Search songs only
+const songs = await yt.music.search('Daft Punk', { type: 'song' });
+
+// Search artists only
+const artists = await yt.music.search('Daft Punk', { type: 'artist' });
+```
+
+---
+
+### `getAlbum`
+
+Fetches album details and track listing by browse ID.
+
+```typescript
+getAlbum(album_id: string): Promise<Album>
+```
+
+<ParamField path="album_id" type="string" required>
+  The album's browse ID. Must start with `MPR` (catalogue album) or `FEmusic_library_privately_owned_release` (uploaded album). Throws `InnertubeError` if the ID is invalid.
+</ParamField>
+
+<ResponseField name="Album" type="Promise<Album>">
+  Parsed album page including tracks, release metadata, and artist links.
+</ResponseField>
+
+```typescript
+const album = await yt.music.getAlbum('MPREb_gTAcphH99wE');
+console.log(album.header?.title.toString());
+```
+
+---
+
+### `getArtist`
+
+Fetches an artist page by channel ID.
+
+```typescript
+getArtist(artist_id: string): Promise<Artist>
+```
+
+<ParamField path="artist_id" type="string" required>
+  The artist's channel ID. Must start with `UC` or `FEmusic_library_privately_owned_artist`. Throws `InnertubeError` for invalid IDs.
+</ParamField>
+
+<ResponseField name="Artist" type="Promise<Artist>">
+  Parsed artist page with discography, popular songs, and related artists.
+</ResponseField>
+
+```typescript
+const artist = await yt.music.getArtist('UCVjNAlnu3blMkF7SNI3C-Zg');
+console.log(artist.header?.name.toString());
+```
+
+---
+
+### `getPlaylist`
+
+Fetches a YouTube Music playlist by browse ID.
+
+```typescript
+getPlaylist(playlist_id: string): Promise<Playlist>
+```
+
+<ParamField path="playlist_id" type="string" required>
+  The playlist's browse ID. If the ID does not start with `VL`, the prefix is prepended automatically.
+</ParamField>
+
+<ResponseField name="Playlist" type="Promise<Playlist>">
+  Parsed Music playlist with tracks and metadata.
+</ResponseField>
+
+```typescript
+const playlist = await yt.music.getPlaylist('PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI');
+for (const track of playlist.tracks) {
+  console.log(track.title?.toString());
+}
+```
+
+---
+
+### `getHomeFeed`
+
+Fetches the YouTube Music home feed for the current session.
+
+```typescript
+getHomeFeed(): Promise<HomeFeed>
+```
+
+<ResponseField name="HomeFeed" type="Promise<HomeFeed>">
+  Parsed home feed with personalised shelves and mixed-type content sections.
+</ResponseField>
+
+```typescript
+const feed = await yt.music.getHomeFeed();
+for (const section of feed.sections) {
+  console.log(section.title?.toString());
+}
+```
+
+---
+
+### `getExplore`
+
+Fetches the YouTube Music Explore page, including new releases and mood/genre charts.
+
+```typescript
+getExplore(): Promise<Explore>
+```
+
+<ResponseField name="Explore" type="Promise<Explore>">
+  Parsed Explore page. Continuation support is not yet implemented.
+</ResponseField>
+
+```typescript
+const explore = await yt.music.getExplore();
+```
+
+---
+
+### `getLyrics`
+
+Fetches the lyrics shelf for a given track.
+
+```typescript
+getLyrics(video_id: string): Promise<MusicDescriptionShelf | undefined>
+```
+
+<ParamField path="video_id" type="string" required>
+  The video ID of the track whose lyrics should be fetched.
+</ParamField>
+
+<ResponseField name="MusicDescriptionShelf | undefined" type="Promise<MusicDescriptionShelf | undefined>">
+  A `MusicDescriptionShelf` containing lyric text and source attribution, or `undefined` when no lyrics shelf is present. Throws `InnertubeError` when the track explicitly reports no lyrics.
+</ResponseField>
+
+```typescript
+const lyrics = await yt.music.getLyrics('dQw4w9WgXcQ');
+if (lyrics) {
+  console.log(lyrics.description.toString());
+}
+```
+
+---
+
+### `getUpNext`
+
+Fetches the "Up Next" queue for a given track, optionally requesting the automix continuation playlist.
+
+```typescript
+getUpNext(video_id: string, automix?: boolean): Promise<PlaylistPanel>
+```
+
+<ParamField path="video_id" type="string" required>
+  The video ID of the currently playing track.
+</ParamField>
+
+<ParamField path="automix" type="boolean" default="true">
+  When `true` (default), the automix continuation is requested so the queue returns an extended playlist rather than just a few manually queued items.
+</ParamField>
+
+<ResponseField name="PlaylistPanel" type="Promise<PlaylistPanel>">
+  A playlist panel containing the ordered list of upcoming tracks.
+</ResponseField>
+
+```typescript
+const queue = await yt.music.getUpNext('dQw4w9WgXcQ');
+for (const item of queue.contents) {
+  console.log(item.title?.toString());
+}
+
+// Without automix
+const manual = await yt.music.getUpNext('dQw4w9WgXcQ', false);
+```
+
+---
+
+### `getRelated`
+
+Fetches the "Related" tab for a given track.
+
+```typescript
+getRelated(video_id: string): Promise<SectionList | Message>
+```
+
+<ParamField path="video_id" type="string" required>
+  The video ID of the track.
+</ParamField>
+
+<ResponseField name="SectionList | Message" type="Promise<SectionList | Message>">
+  A `SectionList` of related tracks and content, or a `Message` when no related content is available.
+</ResponseField>
+
+```typescript
+const related = await yt.music.getRelated('dQw4w9WgXcQ');
+```
+
+---
+
+### `getLibrary`
+
+Fetches the YouTube Music library for the signed-in account.
+
+```typescript
+getLibrary(): Promise<Library>
+```
+
+<ResponseField name="Library" type="Promise<Library>">
+  Parsed library page containing playlists, albums, artists, and songs saved by the account.
+</ResponseField>
+
+<Warning>
+  Requires a signed-in session. Returns an empty or limited library for unauthenticated sessions.
+</Warning>
+
+```typescript
+const library = await yt.music.getLibrary();
+```
+
+---
+
+### `getRecap`
+
+Fetches the YouTube Music listening recap (year-in-review) for the signed-in account.
+
+```typescript
+getRecap(): Promise<Recap>
+```
+
+<ResponseField name="Recap" type="Promise<Recap>">
+  Parsed recap page with listening statistics and highlights.
+</ResponseField>
+
+```typescript
+const recap = await yt.music.getRecap();
+```
+
+---
+
+### `getSearchSuggestions`
+
+Fetches real-time search suggestions for a partial query string.
+
+```typescript
+getSearchSuggestions(input: string): Promise<ObservedArray<SearchSuggestionsSection>>
+```
+
+<ParamField path="input" type="string" required>
+  The partial query string to retrieve suggestions for.
+</ParamField>
+
+<ResponseField name="ObservedArray<SearchSuggestionsSection>" type="Promise<ObservedArray<SearchSuggestionsSection>>">
+  An array of `SearchSuggestionsSection` items. Returns an empty array when no suggestions are available.
+</ResponseField>
+
+```typescript
+const suggestions = await yt.music.getSearchSuggestions('Daft P');
+for (const section of suggestions) {
+  console.log(section.contents);
+}
+```

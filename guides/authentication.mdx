@@ -1,0 +1,220 @@
+---
+title: "Authenticate with YouTube using OAuth2"
+description: "Sign in to YouTube with cookies or the OAuth2 device code flow, handle credential events, cache tokens, and revoke access when you're done."
+keywords: ["OAuth2", "authentication", "sign in", "cookies", "tokens", "device code flow", "access token", "refresh token"]
+---
+
+YouTube.js supports two authentication methods: **cookie-based** sign-in (recommended) and **OAuth2** using the TV device code flow. Cookies are simpler and more reliable for most use cases. OAuth2 is available for environments where you can prompt a user to visit a URL and enter a code.
+
+<Warning>
+  Due to recent changes by Google, the OAuth2 flow only works when using the TV client (`ClientType.TV`). For most applications, using cookies is the recommended approach.
+</Warning>
+
+## Cookie-based authentication
+
+Pass a raw YouTube cookie string to `Innertube.create()`. The session's `logged_in` property is set to `true` automatically.
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  cookie: 'SID=...; HSID=...; SSID=...; APISID=...; SAPISID=...',
+});
+
+console.log(yt.session.logged_in); // true
+```
+
+You can extract cookies from your browser's developer tools after signing in to YouTube. Copy the value of the `Cookie` request header from any `youtube.com` request.
+
+## OAuth2 device code flow
+
+The OAuth2 flow works by directing the user to a URL where they enter a short code. YouTube.js polls for approval in the background and fires events as the flow progresses.
+
+<Steps>
+  <Step title="Create a session">
+    Create an Innertube instance. If you plan to cache tokens, provide a `cache` at this step.
+
+    ```typescript
+    import { Innertube, UniversalCache } from 'youtubei.js';
+
+    const yt = await Innertube.create({
+      cache: new UniversalCache(false),
+    });
+    ```
+  </Step>
+  <Step title="Register event handlers">
+    Set up listeners on `yt.session` before calling `signIn()`. The three events you need are `auth-pending`, `auth`, and `auth-error`.
+
+    ```typescript
+    // Fired when the device code is ready — prompt the user to visit the URL
+    yt.session.on('auth-pending', (data) => {
+      console.log(`Go to ${data.verification_url} and enter code ${data.user_code}`);
+    });
+
+    // Fired when the user successfully authorizes the request
+    yt.session.on('auth', ({ credentials }) => {
+      console.log('Signed in:', credentials);
+    });
+
+    // Fired when the access token is refreshed automatically
+    yt.session.on('update-credentials', async ({ credentials }) => {
+      console.log('Credentials updated:', credentials);
+      await yt.session.oauth.cacheCredentials();
+    });
+    ```
+  </Step>
+  <Step title="Call signIn()">
+    Start the sign-in flow. This returns a Promise that resolves once the `auth` event fires.
+
+    ```typescript
+    await yt.session.signIn();
+    ```
+
+    If you already have tokens from a previous session, pass them to skip the device code step:
+
+    ```typescript
+    await yt.session.signIn({
+      access_token: '...',
+      refresh_token: '...',
+      expiry_date: '2025-01-01T00:00:00.000Z',
+    });
+    ```
+  </Step>
+  <Step title="Cache credentials (optional)">
+    To avoid repeating the device code flow on the next run, cache the credentials. On subsequent calls to `signIn()`, the library loads from cache and fires `auth` directly without emitting `auth-pending`.
+
+    ```typescript
+    await yt.session.oauth.cacheCredentials();
+    ```
+
+    <Note>
+      Credential caching is provided for convenience during development. In production, store your tokens in a database and pass them to `signIn(credentials)` explicitly.
+    </Note>
+  </Step>
+  <Step title="Sign out">
+    Sign out to revoke the access token on YouTube's authorization server and clear `logged_in`.
+
+    ```typescript
+    await yt.session.signOut();
+    ```
+
+    To only remove the cached tokens without revoking the access token:
+
+    ```typescript
+    await yt.session.oauth.removeCache();
+    ```
+  </Step>
+</Steps>
+
+## OAuth2Tokens type
+
+When you receive credentials from the `auth` or `update-credentials` events, they conform to the `OAuth2Tokens` type.
+
+<ResponseField name="access_token" type="string" required>
+  The OAuth2 bearer token used to authenticate API requests. Expires after a short period (typically one hour).
+</ResponseField>
+
+<ResponseField name="refresh_token" type="string" required>
+  A long-lived token used to obtain new access tokens without re-authorizing. Store this securely.
+</ResponseField>
+
+<ResponseField name="expiry_date" type="string" required>
+  An ISO 8601 date string indicating when the access token expires. YouTube.js converts `expires_in` (seconds) to this format automatically.
+</ResponseField>
+
+<ResponseField name="client" type="object">
+  The OAuth2 client credentials used during the flow. Present when the library resolved the client identity from YouTube TV.
+
+  <Expandable title="properties">
+    <ResponseField name="client_id" type="string">
+      The OAuth2 client ID extracted from the YouTube TV app.
+    </ResponseField>
+    <ResponseField name="client_secret" type="string">
+      The OAuth2 client secret extracted from the YouTube TV app.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Session events
+
+`yt.session` is an `EventEmitter`. You can register handlers with `.on()` (fires every time) or `.once()` (fires only once).
+
+| Event | When it fires | Handler signature |
+|---|---|---|
+| `auth-pending` | Device code is ready; user must visit the URL | `(data: DeviceAndUserCode) => void` |
+| `auth` | Sign-in succeeded, or cached credentials loaded | `({ credentials: OAuth2Tokens }) => void` |
+| `update-credentials` | Access token was refreshed | `({ credentials: OAuth2Tokens }) => void` |
+| `auth-error` | Sign-in failed (access denied, token expired, server error) | `(err: OAuth2Error) => void` |
+
+### DeviceAndUserCode fields
+
+The `auth-pending` event receives an object with the following fields:
+
+<ResponseField name="verification_url" type="string">
+  The URL the user must visit in their browser to authorize the request.
+</ResponseField>
+
+<ResponseField name="user_code" type="string">
+  The short alphanumeric code the user enters at `verification_url`.
+</ResponseField>
+
+<ResponseField name="device_code" type="string">
+  The device code used internally to poll for token issuance.
+</ResponseField>
+
+<ResponseField name="expires_in" type="number">
+  Seconds until the device code expires. After this time the user must restart the flow.
+</ResponseField>
+
+<ResponseField name="interval" type="number">
+  Polling interval in seconds. YouTube.js uses this automatically when calling `pollForAccessToken`.
+</ResponseField>
+
+## Complete example
+
+The following example mirrors the official `examples/auth/yttv-oauth2.js` included in the repository:
+
+```javascript
+import { Innertube, UniversalCache } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  cache: new UniversalCache(false),
+});
+
+yt.session.on('auth-pending', (data) => {
+  console.log(`Go to ${data.verification_url} in your browser and enter code ${data.user_code} to authenticate.`);
+});
+
+yt.session.on('auth', ({ credentials }) => {
+  console.log('Sign in successful:', credentials);
+});
+
+yt.session.on('update-credentials', async ({ credentials }) => {
+  console.log('Credentials updated:', credentials);
+  await yt.session.oauth.cacheCredentials();
+});
+
+await yt.session.signIn();
+
+// Cache the credentials for next time
+await yt.session.oauth.cacheCredentials();
+
+// Sign out and revoke the credentials
+await yt.session.signOut();
+```
+
+## Token refresh
+
+YouTube.js checks whether the access token has expired whenever you call `signIn()` with existing credentials. If `shouldRefreshToken()` returns `true` (current time is past `expiry_date`), the library calls `refreshAccessToken()` automatically before emitting `auth`.
+
+You can also trigger a refresh manually:
+
+```typescript
+await yt.session.oauth.refreshAccessToken();
+```
+
+After a successful refresh, the `update-credentials` event fires with the updated token. If you are persisting credentials, use this event to write the new `access_token` and `expiry_date` to your store.
+
+<Tip>
+  If your application runs on a schedule or daemon process, listen for `update-credentials` and persist the updated tokens each time. The refresh token is long-lived, but the access token expires roughly every hour.
+</Tip>

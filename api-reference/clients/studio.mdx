@@ -1,0 +1,176 @@
+---
+title: "Studio client — YouTube Studio API reference"
+description: "Method reference for the Studio client, covering video upload and metadata update operations that require an authenticated YouTube Studio session."
+---
+
+The `Studio` client is accessed via `yt.studio` on an `Innertube` instance. It exposes methods for managing uploaded videos through YouTube Studio's private API surface. **All methods require a signed-in session** — calling them without authentication throws an `InnertubeError`.
+
+<Warning>
+  Both methods on this client require the user to be signed in. Calling them on an unauthenticated `Innertube` instance throws `InnertubeError: You must be signed in to perform this operation.`
+</Warning>
+
+## Types
+
+### `UpdateVideoMetadataOptions`
+
+Passed to `updateVideoMetadata`. All fields are optional.
+
+```typescript
+type UpdateVideoMetadataOptions = Partial<{
+  title: string;
+  description: string;
+  tags: string[];
+  category: number;
+  license: string;
+  age_restricted: boolean;
+  made_for_kids: boolean;
+  thumbnail: Uint8Array;
+  privacy: 'PUBLIC' | 'PRIVATE' | 'UNLISTED';
+}>;
+```
+
+### `UploadedVideoMetadataOptions`
+
+Passed to `upload` as the second argument. All fields are optional.
+
+```typescript
+type UploadedVideoMetadataOptions = Partial<{
+  title: string;
+  description: string;
+  privacy: 'PUBLIC' | 'PRIVATE' | 'UNLISTED';
+  is_draft: boolean;
+}>;
+```
+
+## Methods
+
+### `updateVideoMetadata`
+
+Updates the metadata of an existing uploaded video. Fields omitted from the `metadata` object are left unchanged on the video.
+
+```typescript
+updateVideoMetadata(
+  video_id: string,
+  metadata: UpdateVideoMetadataOptions
+): Promise<ApiResponse>
+```
+
+<ParamField path="video_id" type="string" required>
+  The encrypted video ID of the video to update. This is the standard 11-character video ID visible in YouTube URLs.
+</ParamField>
+
+<ParamField path="metadata" type="UpdateVideoMetadataOptions" required>
+  An object containing the fields to update. All keys are optional — only the fields you supply are changed.
+
+  <Expandable title="metadata properties">
+    <ParamField path="metadata.title" type="string">
+      New title for the video.
+    </ParamField>
+    <ParamField path="metadata.description" type="string">
+      New description for the video.
+    </ParamField>
+    <ParamField path="metadata.tags" type="string[]">
+      Replacement tag list. This overwrites the existing tags entirely.
+    </ParamField>
+    <ParamField path="metadata.category" type="number">
+      YouTube category ID (e.g. `27` for Education). See the YouTube Data API category list for valid values.
+    </ParamField>
+    <ParamField path="metadata.license" type="string">
+      License identifier. Use `'creative_commons'` for a Creative Commons license or the YouTube standard license.
+    </ParamField>
+    <ParamField path="metadata.age_restricted" type="boolean">
+      When `true`, marks the video as age-restricted.
+    </ParamField>
+    <ParamField path="metadata.made_for_kids" type="boolean">
+      When `true`, marks the video as made for kids (COPPA).
+    </ParamField>
+    <ParamField path="metadata.thumbnail" type="Uint8Array">
+      Raw bytes of the new thumbnail image (JPEG or PNG).
+    </ParamField>
+    <ParamField path="metadata.privacy" type="'PUBLIC' | 'PRIVATE' | 'UNLISTED'">
+      Visibility setting for the video.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ResponseField name="ApiResponse" type="Promise<ApiResponse>">
+  The raw API response object. Check `response.success` and `response.status_code` to confirm the update was applied.
+</ResponseField>
+
+```typescript
+import * as fs from 'fs';
+
+const thumbnail = fs.readFileSync('./thumbnail.jpg');
+
+const response = await yt.studio.updateVideoMetadata('dQw4w9WgXcQ', {
+  title: 'Artemis Mission — Launch Day',
+  description: 'Live coverage of the Artemis launch...',
+  tags: ['astronomy', 'NASA', 'Artemis'],
+  category: 28, // Science & Technology
+  license: 'creative_commons',
+  privacy: 'PUBLIC',
+  thumbnail,
+});
+
+console.log(response.success); // true
+```
+
+---
+
+### `upload`
+
+Uploads a video file to YouTube and sets its initial metadata. The upload is performed using Google's resumable upload protocol.
+
+```typescript
+upload(
+  file: BodyInit,
+  metadata?: UploadedVideoMetadataOptions
+): Promise<ApiResponse>
+```
+
+<ParamField path="file" type="BodyInit" required>
+  The video file to upload. Accepts any value valid as a `fetch` request body: `ArrayBuffer`, `Blob`, `ReadableStream`, `string`, etc. In Node.js, pass `fs.readFileSync(...).buffer` or a `Buffer`.
+</ParamField>
+
+<ParamField path="metadata" type="UploadedVideoMetadataOptions">
+  Optional metadata applied when the video is created. Defaults to an empty object; privacy defaults to `'PRIVATE'` when not specified.
+
+  <Expandable title="metadata properties">
+    <ParamField path="metadata.title" type="string">
+      Title for the uploaded video.
+    </ParamField>
+    <ParamField path="metadata.description" type="string">
+      Description for the uploaded video.
+    </ParamField>
+    <ParamField path="metadata.privacy" type="'PUBLIC' | 'PRIVATE' | 'UNLISTED'" default="'PRIVATE'">
+      Visibility of the video immediately after upload.
+    </ParamField>
+    <ParamField path="metadata.is_draft" type="boolean" default="false">
+      When `true`, the video is saved as a draft and not published.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ResponseField name="ApiResponse" type="Promise<ApiResponse>">
+  The raw API response from the `createvideo` endpoint. Check `response.success` and `response.status_code`.
+</ResponseField>
+
+<Note>
+  The upload is a two-phase operation. The client first negotiates an upload URL, then streams the file to Google's Scotty upload infrastructure before calling the `createvideo` endpoint to attach metadata.
+</Note>
+
+```typescript
+import * as fs from 'fs';
+
+const file = fs.readFileSync('./my_video.mp4');
+
+const response = await yt.studio.upload(file.buffer, {
+  title: 'My Awesome Video',
+  description: 'Uploaded with YouTube.js',
+  privacy: 'PRIVATE',
+  is_draft: false,
+});
+
+console.log(response.success);   // true
+console.log(response.status_code); // 200
+```

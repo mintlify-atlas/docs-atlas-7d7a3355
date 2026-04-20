@@ -1,0 +1,231 @@
+---
+title: "Access YouTube Music with the Music client"
+description: "Browse tracks, albums, artists, and playlists on YouTube Music, search with type filters, and retrieve lyrics, the home feed, and your personal library."
+keywords: ["youtube music", "music client", "tracks", "albums", "artists", "playlists", "lyrics"]
+---
+
+YouTube.js includes a dedicated `Music` client that targets YouTube Music's InnerTube API (`YTMUSIC` client). It is available on any `Innertube` instance as `yt.music` and provides methods for retrieving track info, browsing catalog content, searching with music-specific filters, and accessing your personal library. No separate installation or authentication is required for public content.
+
+## Accessing the client
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create();
+const music = yt.music;
+```
+
+## Retrieving track info
+
+`getInfo()` accepts a video ID string, a `MusicTwoRowItem`, a `MusicResponsiveListItem`, or a `NavigationEndpoint`. Passing a list item automatically starts an associated radio.
+
+```typescript
+const track = await yt.music.getInfo('VIDEO_ID');
+
+console.info(track.basic_info.title);
+console.info(track.basic_info.author);
+console.info(track.basic_info.duration);
+```
+
+The returned `TrackInfo` extends `MediaInfo` and provides several music-specific helpers:
+
+<AccordionGroup>
+  <Accordion title="getLyrics()">
+    Fetches the lyrics tab for the current track. Returns a `MusicDescriptionShelf` or `undefined` if lyrics are unavailable.
+
+    ```typescript
+    const lyrics = await track.getLyrics();
+    if (lyrics) {
+      console.info(lyrics.description.toString());
+    }
+    ```
+  </Accordion>
+  <Accordion title="getUpNext()">
+    Fetches the Up Next playlist panel. Automatically resolves an automix playlist when no explicit playlist ID is present.
+
+    ```typescript
+    const up_next = await track.getUpNext();
+    console.info(up_next.contents); // PlaylistPanelVideoWrapper[]
+    ```
+  </Accordion>
+  <Accordion title="getRelated()">
+    Returns a shelf of related tracks and content.
+
+    ```typescript
+    const related = await track.getRelated();
+    console.info(related);
+    ```
+  </Accordion>
+  <Accordion title="addToWatchHistory()">
+    Marks the track as watched in YouTube Music's history. Requires an authenticated session.
+
+    ```typescript
+    await track.addToWatchHistory();
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Searching
+
+`search()` accepts a query string and an optional `MusicSearchFilters` object. Without a filter, results span all content types.
+
+```typescript
+const results = await yt.music.search('Tame Impala');
+```
+
+### Filtering by type
+
+Set `type` to narrow results to a single content category:
+
+```typescript
+const songs    = await yt.music.search('Tame Impala', { type: 'song' });
+const albums   = await yt.music.search('Tame Impala', { type: 'album' });
+const artists  = await yt.music.search('Tame Impala', { type: 'artist' });
+const videos   = await yt.music.search('Tame Impala', { type: 'video' });
+const playlists = await yt.music.search('chill vibes', { type: 'playlist' });
+```
+
+The `type` field accepts: `'all'` | `'song'` | `'video'` | `'album'` | `'playlist'` | `'artist'`.
+
+### Search suggestions
+
+```typescript
+const suggestions = await yt.music.getSearchSuggestions('tame');
+// Returns ObservedArray<SearchSuggestionsSection>
+```
+
+## Browsing the catalog
+
+### Albums
+
+`getAlbum()` requires an album browse ID beginning with `MPR` (or `FEmusic_library_privately_owned_release` for library albums).
+
+```typescript
+const album = await yt.music.getAlbum('MPREb_ALBUM_ID');
+
+console.info(album.header);       // MusicDetailHeader | MusicResponsiveHeader
+console.info(album.contents);     // ObservedArray<MusicResponsiveListItem> — the track list
+console.info(album.sections);     // ObservedArray<MusicCarouselShelf> — related shelves
+console.info(album.url);          // Canonical URL
+```
+
+### Artists
+
+`getArtist()` requires a channel ID beginning with `UC` (or a library artist ID beginning with `FEmusic_library_privately_owned_artist`).
+
+```typescript
+const artist = await yt.music.getArtist('UCddiUEpeqJcYeBxX1IVBKvQ');
+
+console.info(artist.header);    // MusicImmersiveHeader | MusicVisualHeader | MusicHeader
+console.info(artist.sections);  // ObservedArray<MusicCarouselShelf | MusicShelf>
+
+// Fetch the full song list from the "Top songs" shelf
+const songs = await artist.getAllSongs();
+console.info(songs?.contents);
+```
+
+### Playlists
+
+`getPlaylist()` accepts any playlist ID — the `VL` prefix is added automatically if missing.
+
+```typescript
+const playlist = await yt.music.getPlaylist('PLrEnWoR732-BHrPp_Pm8_VleD68f9s14-');
+console.info(playlist.items);
+```
+
+## Feeds and discovery
+
+<CodeGroup>
+
+```typescript Home feed
+const home = await yt.music.getHomeFeed();
+// Carousels of recommended tracks, albums, and mixes
+console.info(home.sections);
+```
+
+```typescript Explore
+const explore = await yt.music.getExplore();
+// New releases, charts, and genre moods
+console.info(explore);
+```
+
+```typescript Library (requires auth)
+const library = await yt.music.getLibrary();
+console.info(library);
+```
+
+```typescript Recap
+const recap = await yt.music.getRecap();
+console.info(recap);
+```
+
+</CodeGroup>
+
+## Up Next and lyrics from the client level
+
+In addition to the instance methods on `TrackInfo`, the `Music` client exposes standalone methods that work with any video ID:
+
+```typescript
+// Up Next queue for a video ID
+const panel = await yt.music.getUpNext('VIDEO_ID');
+console.info(panel.contents);
+
+// Lyrics for a video ID
+const lyrics = await yt.music.getLyrics('VIDEO_ID');
+if (lyrics) {
+  console.info(lyrics.description.toString());
+}
+
+// Related content for a video ID
+const related = await yt.music.getRelated('VIDEO_ID');
+```
+
+## Downloading a track
+
+`TrackInfo` inherits from `MediaInfo`, so you can decode stream URLs the same way as regular YouTube videos. Pass `client: 'YTMUSIC'` in the format options.
+
+```typescript
+import { Innertube } from 'youtubei.js';
+import { writeFileSync } from 'fs';
+
+const yt = await Innertube.create();
+const track = await yt.music.getInfo('VIDEO_ID');
+
+// Choose the best audio format
+const format = track.chooseFormat({ type: 'audio', quality: 'best' });
+const stream = await track.download({ type: 'audio', quality: 'best' });
+
+const chunks: Uint8Array[] = [];
+for await (const chunk of stream) {
+  chunks.push(chunk);
+}
+
+writeFileSync('track.webm', Buffer.concat(chunks));
+console.info('Download complete.');
+```
+
+<Note>
+  The `YTMUSIC` client surfaces audio-only formats at higher bitrates than the default `WEB` client for the same video, making it preferable for audio extraction.
+</Note>
+
+## Method reference
+
+| Method | Parameters | Returns |
+|---|---|---|
+| `getInfo(target, options?)` | `string \| MusicTwoRowItem \| MusicResponsiveListItem \| NavigationEndpoint` | `Promise<TrackInfo>` |
+| `search(query, filters?)` | `query: string`, `filters?: MusicSearchFilters` | `Promise<Search>` |
+| `getSearchSuggestions(input)` | `input: string` | `Promise<ObservedArray<SearchSuggestionsSection>>` |
+| `getAlbum(album_id)` | `string` (starts with `MPR`) | `Promise<Album>` |
+| `getArtist(artist_id)` | `string` (starts with `UC`) | `Promise<Artist>` |
+| `getPlaylist(playlist_id)` | `string` | `Promise<Playlist>` |
+| `getUpNext(video_id, automix?)` | `string`, `boolean` (default `true`) | `Promise<PlaylistPanel>` |
+| `getLyrics(video_id)` | `string` | `Promise<MusicDescriptionShelf \| undefined>` |
+| `getRelated(video_id)` | `string` | `Promise<SectionList \| Message>` |
+| `getHomeFeed()` | — | `Promise<HomeFeed>` |
+| `getExplore()` | — | `Promise<Explore>` |
+| `getLibrary()` | — | `Promise<Library>` |
+| `getRecap()` | — | `Promise<Recap>` |
+
+<Warning>
+  `getLibrary()` and `getRecap()` require an authenticated session. See the [Authentication guide](/guides/authentication) for how to sign in using the OAuth2 device code flow.
+</Warning>

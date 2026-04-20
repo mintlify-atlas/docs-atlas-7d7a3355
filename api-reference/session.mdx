@@ -1,0 +1,345 @@
+---
+title: 'Session — InnerTube session management'
+description: 'Reference for the Session class: create and configure InnerTube sessions, manage authentication state, handle OAuth2 events, and control client context.'
+---
+
+The `Session` class is the core of every YouTube.js instance. It holds all the data needed to make authenticated or unauthenticated requests to YouTube's InnerTube API, including the client context, API key, HTTP client, player data, and OAuth2 credentials.
+
+You rarely construct a `Session` directly — use `Innertube.create` instead. Use `Session.create` directly when you need precise control over the session lifecycle.
+
+## Static methods
+
+### `create`
+
+```typescript
+static async create(options?: SessionOptions): Promise<Session>
+```
+
+Creates and initializes a new `Session`. This fetches session data from YouTube (or generates it locally), optionally retrieves the JS player, and wires up HTTP and OAuth2 clients.
+
+```typescript
+import { Session, ClientType } from 'youtubei.js';
+
+const session = await Session.create({
+  lang: 'en',
+  location: 'US',
+  client_type: ClientType.WEB,
+  retrieve_player: true
+});
+```
+
+<ParamField path="options" type="SessionOptions">
+  <Expandable title="properties">
+    <ParamField path="lang" type="string">
+      BCP 47 language tag (e.g. `"en"`, `"ja"`).
+    </ParamField>
+    <ParamField path="location" type="string">
+      ISO 3166-1 alpha-2 country code (e.g. `"US"`, `"DE"`).
+    </ParamField>
+    <ParamField path="user_agent" type="string">
+      Custom user-agent for InnerTube requests.
+    </ParamField>
+    <ParamField path="account_index" type="number" default="0">
+      Account index when multiple accounts are signed in via cookies.
+    </ParamField>
+    <ParamField path="on_behalf_of_user" type="string">
+      Page ID of the YouTube profile/channel to use for multi-profile accounts.
+    </ParamField>
+    <ParamField path="retrieve_player" type="boolean" default="true">
+      Fetch the JS player on session creation. Required for format deciphering.
+    </ParamField>
+    <ParamField path="enable_safety_mode" type="boolean" default="false">
+      Prevent loading potentially unsafe content.
+    </ParamField>
+    <ParamField path="retrieve_innertube_config" type="boolean" default="true">
+      Retrieve InnerTube config data. Useful for onesie requests.
+    </ParamField>
+    <ParamField path="generate_session_locally" type="boolean" default="false">
+      Build session data locally instead of fetching from YouTube.
+    </ParamField>
+    <ParamField path="fail_fast" type="boolean" default="false">
+      Throw if YouTube session data cannot be retrieved, instead of using a local fallback.
+    </ParamField>
+    <ParamField path="enable_session_cache" type="boolean" default="true">
+      Cache session data via the provided `cache` implementation.
+    </ParamField>
+    <ParamField path="device_category" type="string" default="desktop">
+      Platform category: `"desktop"`, `"mobile"`, or `"tv"`.
+    </ParamField>
+    <ParamField path="client_type" type="ClientType">
+      InnerTube client type. Defaults to `ClientType.WEB`.
+    </ParamField>
+    <ParamField path="timezone" type="string">
+      IANA timezone string. Defaults to the system timezone.
+    </ParamField>
+    <ParamField path="cache" type="ICache">
+      Cache implementation for session data, algorithms, and OAuth2 tokens.
+    </ParamField>
+    <ParamField path="cookie" type="string">
+      Raw YouTube cookie string for cookie-based authentication.
+    </ParamField>
+    <ParamField path="visitor_data" type="string">
+      Persistent visitor data for tailored content without authentication.
+    </ParamField>
+    <ParamField path="fetch" type="FetchFunction">
+      Custom `fetch`-compatible function.
+    </ParamField>
+    <ParamField path="po_token" type="string">
+      Session-bound Proof of Origin Token.
+    </ParamField>
+    <ParamField path="player_id" type="string">
+      Override the JS player ID to work around temporary YouTube breakage.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Returns** `Promise<Session>`
+
+---
+
+### `fromCache`
+
+```typescript
+static async fromCache(cache: ICache, session_args: SessionArgs): Promise<SessionData | null>
+```
+
+Attempts to load previously stored session data from a cache. Returns `null` if no data is found or if the cached data is from an incompatible library version.
+
+<ParamField path="cache" type="ICache" required>
+  A valid cache implementation.
+</ParamField>
+
+<ParamField path="session_args" type="SessionArgs" required>
+  User-provided session arguments used to override specific fields in the cached data (e.g. language, location, visitor data).
+</ParamField>
+
+**Returns** `Promise<SessionData | null>`
+
+---
+
+## Instance methods
+
+### `signIn`
+
+```typescript
+async signIn(credentials?: OAuth2Tokens): Promise<void>
+```
+
+Signs the session in using OAuth2. If `credentials` are provided, they are applied immediately (refreshing if expired) and the `'auth'` event fires. If omitted, the device code OAuth2 flow is initiated: listen for the `'auth-pending'` event to get the user code, then wait for `'auth'`.
+
+```typescript
+// With existing tokens:
+await session.signIn({
+  access_token: '...',
+  refresh_token: '...',
+  expiry_date: '2026-01-01T00:00:00.000Z'
+});
+
+// With device code flow:
+session.on('auth-pending', (data) => {
+  console.log(`Visit ${data.verification_url} and enter: ${data.user_code}`);
+});
+session.on('auth', ({ credentials }) => {
+  console.log('Signed in!', credentials);
+});
+await session.signIn();
+```
+
+<ParamField path="credentials" type="OAuth2Tokens">
+  Existing OAuth2 tokens to use. If omitted, the device code flow starts.
+</ParamField>
+
+**Returns** `Promise<void>`
+
+---
+
+### `signOut`
+
+```typescript
+async signOut(): Promise<Response | undefined>
+```
+
+Revokes the current OAuth2 credentials and sets `logged_in` to `false`. Throws if the session is not authenticated.
+
+**Returns** `Promise<Response | undefined>` — The HTTP response from the revocation endpoint.
+
+---
+
+## Events
+
+`Session` extends `EventEmitter` and emits the following events. Use `session.on(...)` for persistent listeners or `session.once(...)` for one-time listeners.
+
+<ResponseField name="'auth'" type="OAuth2AuthEventHandler">
+  Fired when OAuth2 authentication succeeds or tokens are loaded from cache.
+
+  ```typescript
+  session.on('auth', ({ credentials }) => {
+    // credentials: OAuth2Tokens
+    console.log('Access token:', credentials.access_token);
+  });
+  ```
+</ResponseField>
+
+<ResponseField name="'auth-pending'" type="OAuth2AuthPendingEventHandler">
+  Fired during the device code flow when a user code has been generated and is awaiting user action.
+
+  ```typescript
+  session.on('auth-pending', (data) => {
+    // data: DeviceAndUserCode
+    console.log(`Go to ${data.verification_url} and enter ${data.user_code}`);
+  });
+  ```
+</ResponseField>
+
+<ResponseField name="'auth-error'" type="OAuth2AuthErrorEventHandler">
+  Fired when an OAuth2 error occurs (e.g. access denied, expired device code).
+
+  ```typescript
+  session.on('auth-error', (err) => {
+    console.error('Auth failed:', err.message);
+  });
+  ```
+</ResponseField>
+
+<ResponseField name="'update-credentials'" type="OAuth2AuthEventHandler">
+  Fired when the access token is successfully refreshed. Use this to persist the updated tokens.
+
+  ```typescript
+  session.on('update-credentials', ({ credentials }) => {
+    saveTokens(credentials);
+  });
+  ```
+</ResponseField>
+
+---
+
+## ClientType enum
+
+The `ClientType` enum defines the InnerTube client to identify as. Pass a value to `SessionOptions.client_type`.
+
+| Value | String |
+|---|---|
+| `ClientType.WEB` | `"WEB"` |
+| `ClientType.MWEB` | `"MWEB"` |
+| `ClientType.KIDS` | `"WEB_KIDS"` |
+| `ClientType.MUSIC` | `"WEB_REMIX"` |
+| `ClientType.IOS` | `"iOS"` |
+| `ClientType.ANDROID` | `"ANDROID"` |
+| `ClientType.ANDROID_VR` | `"ANDROID_VR"` |
+| `ClientType.ANDROID_MUSIC` | `"ANDROID_MUSIC"` |
+| `ClientType.ANDROID_CREATOR` | `"ANDROID_CREATOR"` |
+| `ClientType.TV` | `"TVHTML5"` |
+| `ClientType.TV_SIMPLY` | `"TVHTML5_SIMPLY"` |
+| `ClientType.TV_EMBEDDED` | `"TVHTML5_SIMPLY_EMBEDDED_PLAYER"` |
+| `ClientType.WEB_EMBEDDED` | `"WEB_EMBEDDED_PLAYER"` |
+| `ClientType.WEB_CREATOR` | `"WEB_CREATOR"` |
+
+---
+
+## Context structure
+
+The `Context` type represents the full InnerTube request context sent with every API call.
+
+<ResponseField name="client" type="object">
+  Client identification and environment metadata.
+  <Expandable title="properties">
+    <ResponseField name="hl" type="string">BCP 47 language code.</ResponseField>
+    <ResponseField name="gl" type="string">ISO 3166-1 alpha-2 country code.</ResponseField>
+    <ResponseField name="remoteHost" type="string">Remote host IP address.</ResponseField>
+    <ResponseField name="visitorData" type="string">Encoded visitor data string.</ResponseField>
+    <ResponseField name="clientName" type="string">InnerTube client name (e.g. `"WEB"`).</ResponseField>
+    <ResponseField name="clientVersion" type="string">Client version string.</ResponseField>
+    <ResponseField name="osName" type="string">Operating system name.</ResponseField>
+    <ResponseField name="osVersion" type="string">Operating system version.</ResponseField>
+    <ResponseField name="platform" type="string">Platform category (`"DESKTOP"`, `"MOBILE"`, `"TV"`).</ResponseField>
+    <ResponseField name="userAgent" type="string">User-agent string.</ResponseField>
+    <ResponseField name="timeZone" type="string">IANA timezone string.</ResponseField>
+    <ResponseField name="utcOffsetMinutes" type="number">UTC offset in minutes.</ResponseField>
+    <ResponseField name="deviceMake" type="string">Device manufacturer.</ResponseField>
+    <ResponseField name="deviceModel" type="string">Device model.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  User-level session flags.
+  <Expandable title="properties">
+    <ResponseField name="enableSafetyMode" type="boolean">Whether safety mode is active.</ResponseField>
+    <ResponseField name="lockedSafetyMode" type="boolean">Whether safety mode is locked.</ResponseField>
+    <ResponseField name="onBehalfOfUser" type="string">Page ID when acting as a specific channel profile.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="thirdParty" type="object">
+  Third-party embed context. Present only for embedded player clients.
+  <Expandable title="properties">
+    <ResponseField name="embedUrl" type="string">The URL of the embedding page.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="request" type="object">
+  Request-level flags.
+  <Expandable title="properties">
+    <ResponseField name="useSsl" type="boolean">Always `true`.</ResponseField>
+    <ResponseField name="internalExperimentFlags" type="any[]">Internal experiment flags array.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Properties
+
+<ResponseField name="context" type="Context">
+  The full InnerTube context sent with every API request.
+</ResponseField>
+
+<ResponseField name="actions" type="Actions">
+  The internal request dispatcher. Used by all `Innertube` methods internally.
+</ResponseField>
+
+<ResponseField name="http" type="HTTPClient">
+  The HTTP client for making raw fetch requests with session headers.
+</ResponseField>
+
+<ResponseField name="oauth" type="OAuth2">
+  The OAuth2 handler. Manages tokens, the device code flow, and token refresh.
+</ResponseField>
+
+<ResponseField name="player" type="Player | undefined">
+  The parsed JS player. Contains the signature timestamp and decipher functions. Absent if `retrieve_player` was set to `false`.
+</ResponseField>
+
+<ResponseField name="cookie" type="string | undefined">
+  Raw cookie string used for cookie-based authentication.
+</ResponseField>
+
+<ResponseField name="logged_in" type="boolean">
+  `true` if the session is authenticated (via cookie or OAuth2).
+</ResponseField>
+
+<ResponseField name="cache" type="ICache | undefined">
+  The cache implementation provided at session creation.
+</ResponseField>
+
+<ResponseField name="po_token" type="string | undefined">
+  Session-bound Proof of Origin Token.
+</ResponseField>
+
+<ResponseField name="api_key" type="string">
+  The InnerTube API key for this session.
+</ResponseField>
+
+<ResponseField name="api_version" type="string">
+  The InnerTube API version string (e.g. `"v1"`).
+</ResponseField>
+
+<ResponseField name="client_version" type="string">
+  Shortcut to `context.client.clientVersion`.
+</ResponseField>
+
+<ResponseField name="client_name" type="string">
+  Shortcut to `context.client.clientName`.
+</ResponseField>
+
+<ResponseField name="lang" type="string">
+  Shortcut to `context.client.hl` (the session language).
+</ResponseField>

@@ -1,0 +1,251 @@
+---
+title: "Monitor YouTube live stream chat in real time"
+description: "Use the event-driven LiveChat API to receive chat messages, Super Chats, pinned banners, and live metadata updates from any YouTube live stream."
+keywords: ["live chat", "livestream", "real time", "events", "super chat"]
+---
+
+YouTube.js exposes live chat through an `EventEmitter`-based class that continuously polls YouTube's InnerTube endpoints and smooths the emission of actions to match how they appear in the YouTube player. You call `info.getLiveChat()` on a video info object, register event listeners, and then call `livechat.start()` — the rest is handled for you.
+
+## Prerequisites
+
+You need a valid `Innertube` session and a video ID for a live or formerly live stream. The target video must have live chat enabled.
+
+```typescript
+import { Innertube, UniversalCache, YTNodes } from 'youtubei.js';
+
+const yt = await Innertube.create({ cache: new UniversalCache(false) });
+```
+
+## Getting a live chat instance
+
+Fetch the video info first, then call `getLiveChat()`. This method is available on `VideoInfo` objects returned by `yt.getInfo()`.
+
+```typescript
+const info = await yt.getInfo('VIDEO_ID');
+const livechat = info.getLiveChat();
+```
+
+<Note>
+  The `is_replay` property on the returned `LiveChat` instance is automatically set to `true` when the stream has already ended. Replay timing is approximate because the live chat replay requires video player timing data that is not available through the API.
+</Note>
+
+## Registering event listeners
+
+Register all listeners before calling `livechat.start()`. The `LiveChat` class extends `EventEmitter` and supports five event types.
+
+<Tabs>
+  <Tab title="start">
+    Fired once when the initial live chat continuation is received. The argument is a `LiveChatContinuation` containing initial actions (pinned messages, top donations), viewer account info, and filter controls.
+
+    ```typescript
+    livechat.on('start', (initial_data) => {
+      console.info(`Welcome, ${initial_data.viewer_name || 'Guest'}!`);
+
+      // Check for a pinned message in the initial actions
+      const pinned = initial_data.actions.firstOfType(YTNodes.AddBannerToLiveChatCommand);
+      if (pinned?.banner?.contents?.is(YTNodes.LiveChatTextMessage)) {
+        console.info(
+          'Pinned:',
+          pinned.banner.contents.author?.name.toString(),
+          '-',
+          pinned.banner.contents.message.toString()
+        );
+      }
+    });
+    ```
+  </Tab>
+  <Tab title="chat-update">
+    Fired for each incoming chat action. The argument is a `ChatAction` union type — use `.is()` to narrow it.
+
+    ```typescript
+    livechat.on('chat-update', (action) => {
+      if (action.is(YTNodes.AddChatItemAction)) {
+        const item = action.as(YTNodes.AddChatItemAction).item;
+        if (!item) return;
+
+        const time = new Date(
+          item.hasKey('timestamp') ? item.timestamp : Date.now()
+        ).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+        switch (item.type) {
+          case 'LiveChatTextMessage': {
+            const msg = item.as(YTNodes.LiveChatTextMessage);
+            console.info(
+              `${msg.author?.is_moderator ? '[MOD] ' : ''}` +
+              `${time} - ${msg.author?.name}: ${msg.message}`
+            );
+            break;
+          }
+          case 'LiveChatPaidMessage': {
+            const paid = item.as(YTNodes.LiveChatPaidMessage);
+            console.info(
+              `${time} - ${paid.author.name}: ${paid.message} (${paid.purchase_amount})`
+            );
+            break;
+          }
+          case 'LiveChatPaidSticker': {
+            const sticker = item.as(YTNodes.LiveChatPaidSticker);
+            console.info(`${time} - ${sticker.author.name} sent a sticker (${sticker.purchase_amount})`);
+            break;
+          }
+        }
+      }
+
+      if (action.is(YTNodes.AddBannerToLiveChatCommand)) {
+        console.info('Message pinned:', action.banner?.contents);
+      }
+
+      if (action.is(YTNodes.RemoveBannerForLiveChatCommand)) {
+        console.info(`Pinned message ${action.target_action_id} was removed.`);
+      }
+
+      if (action.is(YTNodes.RemoveChatItemAction)) {
+        console.warn(`Message ${action.target_item_id} was deleted.`);
+      }
+    });
+    ```
+  </Tab>
+  <Tab title="metadata-update">
+    Fired roughly every five seconds with updated stream metadata. Each field is optional and only included when the value changed.
+
+    ```typescript
+    livechat.on('metadata-update', (metadata) => {
+      console.info({
+        views: metadata.views?.view_count.toString(),
+        likes: metadata.likes?.default_text,
+        date:  metadata.date?.date_text,
+      });
+    });
+    ```
+  </Tab>
+  <Tab title="error / end">
+    ```typescript
+    livechat.on('error', (err: Error) => {
+      console.error('Live chat error:', err);
+    });
+
+    livechat.on('end', () => {
+      console.info('The live stream has ended.');
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Starting and stopping
+
+```typescript
+// Begin polling and emitting events
+livechat.start();
+
+// Stop polling and clear the internal queue
+// livechat.stop();
+```
+
+## Chat action types
+
+The `chat-update` event delivers a `ChatAction`, which is one of the following node types:
+
+| Type | Description |
+|---|---|
+| `AddChatItemAction` | A new chat item was added (text message, Super Chat, sticker, membership, etc.). |
+| `AddBannerToLiveChatCommand` | A message was pinned to the top of chat. |
+| `RemoveBannerForLiveChatCommand` | The pinned message was unpinned. |
+| `AddLiveChatTickerItemAction` | A ticker item (Super Chat / Super Sticker) was added to the top bar. |
+| `MarkChatItemAsDeletedAction` | A specific message was deleted by a moderator. |
+| `MarkChatItemsByAuthorAsDeletedAction` | All messages from a user were deleted. |
+| `ReplaceChatItemAction` | An existing item was replaced (e.g., AutoMod review resolved). |
+| `ReplayChatItemAction` | Replay-only: a batch of historical chat items. |
+| `ShowLiveChatActionPanelAction` | An engagement panel (e.g., poll) was shown. |
+
+## Chat item types
+
+When the action is `AddChatItemAction`, the `.item` property holds one of:
+
+| Type | Key properties |
+|---|---|
+| `LiveChatTextMessage` | `author`, `message`, `timestamp` |
+| `LiveChatPaidMessage` | `author`, `message`, `purchase_amount`, `header_background_color` |
+| `LiveChatPaidSticker` | `author`, `purchase_amount`, `sticker` |
+| `LiveChatMembershipItem` | `author`, `header_subtext` |
+| `LiveChatAutoModMessage` | `author`, `message` |
+| `LiveChatViewerEngagementMessage` | `icon`, `message` |
+
+## Additional methods
+
+### Sending a message
+
+Requires an authenticated session. Returns the resulting `AddChatItemAction`.
+
+```typescript
+const response = await livechat.sendMessage('Hello from YouTube.js!');
+```
+
+### Applying a chat filter
+
+Switches between **Top Chat** (algorithmically filtered) and **Live Chat** (all messages). Call this after the `start` event fires.
+
+```typescript
+livechat.applyFilter('TOP_CHAT'); // or 'LIVE_CHAT'
+```
+
+### Retrieving an item's context menu
+
+```typescript
+livechat.on('chat-update', async (action) => {
+  if (action.is(YTNodes.AddChatItemAction)) {
+    const item = action.as(YTNodes.AddChatItemAction).item;
+    if (item?.is(YTNodes.LiveChatTextMessage)) {
+      const menu = await livechat.getItemMenu(item.as(YTNodes.LiveChatTextMessage));
+      console.info(menu);
+    }
+  }
+});
+```
+
+## Complete example
+
+The following is the canonical example from the repository, condensed for clarity:
+
+```typescript
+import { Innertube, UniversalCache, YTNodes } from 'youtubei.js';
+
+const yt = await Innertube.create({ cache: new UniversalCache(false) });
+
+const search = await yt.search('lofi hip hop radio - beats to relax/study to');
+const info = await yt.getInfo(search.videos[0].as(YTNodes.Video).id);
+
+const livechat = info.getLiveChat();
+
+livechat.on('start', (initial_data) => {
+  console.info(`Hey ${initial_data.viewer_name || 'Guest'}, welcome to Live Chat!`);
+});
+
+livechat.on('chat-update', (action) => {
+  if (action.is(YTNodes.AddChatItemAction)) {
+    const item = action.as(YTNodes.AddChatItemAction).item;
+    if (!item) return;
+
+    const hours = new Date(
+      item.hasKey('timestamp') ? item.timestamp : Date.now()
+    ).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+    if (item.type === 'LiveChatTextMessage') {
+      const msg = item.as(YTNodes.LiveChatTextMessage);
+      console.info(`${hours} - ${msg.author?.name}: ${msg.message}`);
+    }
+  }
+});
+
+livechat.on('error', (err) => console.error('Error:', err));
+livechat.on('end', () => console.info('Stream ended.'));
+
+livechat.on('metadata-update', (metadata) => {
+  console.info('Views:', metadata.views?.view_count.toString());
+});
+
+livechat.start();
+```
+
+<Tip>
+  The smoothed queue mimics YouTube's own pacing algorithm. For streams with many concurrent messages, actions are emitted asynchronously so the next poll can begin immediately rather than waiting for all actions to be dispatched.
+</Tip>

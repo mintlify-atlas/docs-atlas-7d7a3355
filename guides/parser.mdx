@@ -1,0 +1,303 @@
+---
+title: "Working with the YouTube.js parser and YTNodes"
+description: "The YouTube.js parser converts raw InnerTube JSON into a tree of typed YTNode objects. Learn how to navigate, filter, and extend the parsed response."
+---
+
+Every response from InnerTube arrives as deeply nested, renderer-keyed JSON. The YouTube.js parser walks this structure, identifies each renderer by its key, and instantiates a corresponding typed `YTNode` class. The result is a structured object tree where every element has a known type, typed properties, and a consistent set of utility methods. You rarely need to interact with the parser directly — the high-level `Innertube` methods return pre-parsed objects — but understanding how it works lets you go further when you need to.
+
+## How InnerTube responses become YTNodes
+
+InnerTube wraps every UI component in a renderer object whose single key names the component type. For example, a video in a grid appears as `{ gridVideoRenderer: { ... } }`. The parser strips the `Renderer` suffix, title-cases the result to get `GridVideo`, and looks up the matching class. If the class exists, it constructs a `GridVideo` instance from the inner object. If the class is unknown, the parser generates a runtime class on the fly so nothing is lost.
+
+<CodeGroup>
+
+```json Raw InnerTube response (excerpt)
+{
+  "sidebar": {
+    "playlistSidebarRenderer": {
+      "items": [
+        {
+          "playlistSidebarPrimaryInfoRenderer": {
+            "title": { "simpleText": "My Playlist" },
+            "stats": [
+              { "simpleText": "12 videos" }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+```js Parsed result
+{
+  sidebar: {
+    type: 'PlaylistSidebar',
+    contents: [
+      {
+        type: 'PlaylistSidebarPrimaryInfo',
+        title: { text: 'My Playlist', runs: [ { text: 'My Playlist' } ] },
+        stats: [ { text: '12 videos', runs: [ { text: '12 videos' } ] } ]
+      }
+    ]
+  }
+}
+```
+
+</CodeGroup>
+
+## Parsing a raw response
+
+Use `Parser.parseResponse()` to parse a full InnerTube response object. This is the function the high-level API calls internally, but you can call it yourself when working with raw responses.
+
+```ts
+import { Parser } from 'youtubei.js';
+import { readFileSync } from 'fs';
+
+const raw = JSON.parse(readFileSync('./artist.json', 'utf8'));
+const page = Parser.parseResponse(raw);
+
+// page.contents holds the top-level parsed nodes
+// page.contents_memo is a Memo index for fast type lookups
+```
+
+For parsing individual nodes or arrays without a full response envelope, use the lower-level helpers:
+
+```ts
+import { Parser } from 'youtubei.js';
+
+// Parse a single renderer node — returns a YTNode
+const node = Parser.parseItem(rawRendererObject);
+
+// Parse an array of renderer nodes — returns ObservedArray<YTNode>
+const nodes = Parser.parseArray(rawRendererArray);
+
+// Parse unknown data (may be item or array) — returns SuperParsedResult
+const result = Parser.parse(rawData);
+```
+
+## The YTNode base class
+
+Every parsed renderer is an instance of a class that extends `YTNode`. All `YTNode` subclasses live in the `YTNodes` namespace exported from `youtubei.js`.
+
+```ts
+import { YTNodes } from 'youtubei.js';
+
+// Every node has a static `type` string matching the class name
+console.log(YTNodes.CompactVideo.type); // 'CompactVideo'
+```
+
+### Type narrowing with `is()` and `as()`
+
+Use `is()` to check the type without throwing, and `as()` to assert and cast:
+
+```ts
+import { Parser, YTNodes } from 'youtubei.js';
+
+const node = Parser.parseItem(rawData);
+
+// is() — type guard, returns boolean and narrows the type in the branch
+if (node.is(YTNodes.TwoColumnSearchResults)) {
+  // node is TwoColumnSearchResults here — no cast needed
+  console.log(node.primary_contents);
+}
+
+// as() — assertion, throws ParsingError if the type does not match
+const results = node.as(YTNodes.TwoColumnSearchResults);
+
+// as() with multiple types — returns the union type
+const item = node.as(YTNodes.TwoColumnSearchResults, YTNodes.RichGrid);
+// item: TwoColumnSearchResults | RichGrid
+```
+
+### Accessing properties dynamically with `key()`
+
+When you are not sure whether a property exists, use `key()`. It returns a `Maybe` wrapper that provides type-safe accessors:
+
+```ts
+const node = Parser.parseItem(rawData);
+
+// Check before accessing
+if (node.hasKey('contents')) {
+  const prop = node.key('contents');
+
+  if (prop.isObserved()) {
+    const array = prop.observed();
+    const videos = array.filterType(YTNodes.Video);
+  }
+
+  if (prop.isNode()) {
+    const child = prop.node();
+  }
+
+  if (prop.isNodeOfType(YTNodes.SectionList)) {
+    const section = prop.nodeOfType(YTNodes.SectionList);
+  }
+
+  if (prop.isString()) {
+    const text = prop.string();
+  }
+}
+```
+
+## ObservedArray
+
+`ObservedArray<T>` is a proxied `Array<T>` that wraps every array returned by the parser. It behaves like a regular array but adds type-safe filtering methods.
+
+```ts
+import { Parser, YTNodes } from 'youtubei.js';
+
+const raw = JSON.parse(readFileSync('./artist.json', 'utf8'));
+const page = Parser.parseResponse(raw);
+
+// Navigate to a tab's section list
+const tab = page.contents
+  ?.item()
+  .as(YTNodes.SingleColumnBrowseResults)
+  .tabs
+  .firstOfType(YTNodes.Tab);
+
+if (!tab?.content) throw new Error('Tab not found');
+
+// as() on ObservedArray — all items must be one of the listed types, throws otherwise
+const sections = tab.content
+  .as(YTNodes.SectionList)
+  .contents
+  .as(YTNodes.MusicCarouselShelf, YTNodes.MusicDescriptionShelf, YTNodes.MusicShelf);
+
+// filterType() — returns a new ObservedArray containing only matching types
+const carousels = sections.filterType(YTNodes.MusicCarouselShelf);
+
+// firstOfType() — returns the first matching item or undefined
+const description = sections.firstOfType(YTNodes.MusicDescriptionShelf);
+```
+
+### ObservedArray method reference
+
+| Method | Returns | Description |
+|---|---|---|
+| `filterType(...types)` | `ObservedArray<T>` | Keeps only items matching any of the given types |
+| `firstOfType(...types)` | `T \| undefined` | Returns the first item matching any of the given types |
+| `as(...types)` | `ObservedArray<T>` | Asserts every item is one of the given types, throws on mismatch |
+| `first()` | `T` | Returns `array[0]` |
+| `get(rule)` | `T \| undefined` | Returns the first item deeply matching the rule object |
+| `getAll(rule)` | `T[]` | Returns all items deeply matching the rule object |
+| `matchCondition(fn)` | `T \| undefined` | Returns the first item satisfying a predicate function |
+| `remove(index)` | `T[]` | Removes and returns the item at the given index |
+
+## SuperParsedResult
+
+When the parser does not know at call time whether the data is a single node or an array, it returns a `SuperParsedResult`. Unwrap it by checking `is_node` or `is_array`:
+
+```ts
+import { Parser } from 'youtubei.js';
+
+const result = Parser.parse(rawData);
+
+if (result.is_node) {
+  const node = result.item(); // YTNode
+}
+
+if (result.is_array) {
+  const nodes = result.array(); // ObservedArray<YTNode>
+}
+
+// is_null is true if the underlying value is null
+console.log(result.is_null);
+```
+
+## Using Memo for type lookups
+
+`parseResponse()` builds a `Memo` index alongside each parsed section. `Memo` extends `Map<string, YTNode[]>` and provides a `getType()` helper for quickly retrieving all nodes of a given type from the parsed tree without manually traversing it.
+
+```ts
+import { Parser, YTNodes } from 'youtubei.js';
+
+const page = Parser.parseResponse(raw);
+
+// Retrieve every Video node anywhere in the contents tree
+const videos = page.contents_memo?.getType(YTNodes.Video);
+
+// getType accepts multiple types
+const items = page.contents_memo?.getType(
+  YTNodes.Video,
+  YTNodes.GridVideo,
+  YTNodes.CompactVideo
+);
+```
+
+## Feed continuation and pagination
+
+Feeds returned by methods like `yt.getHomeFeed()` or `yt.search()` implement a `getContinuation()` method. Calling it fetches the next page and returns a new feed object of the same type.
+
+```ts
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create();
+
+let feed = await yt.getHomeFeed();
+console.log(feed.videos);
+
+// Fetch the next page
+feed = await feed.getContinuation();
+console.log(feed.videos);
+```
+
+For lower-level continuation handling, continuation tokens are embedded in the parsed response under `page.continuation` and in `ContinuationItem` nodes within feeds.
+
+## Generating and registering custom nodes
+
+### Runtime generation
+
+When the parser encounters a renderer it has no compiled class for, it calls `generateRuntimeClass()` to create one on the fly. You can access these generated classes by name:
+
+```ts
+import { Parser } from 'youtubei.js';
+
+if (Parser.hasParser('SomeNewRenderer')) {
+  const SomeNewRenderer = Parser.getParserByName('SomeNewRenderer');
+  const node = new SomeNewRenderer(rawData);
+}
+```
+
+### Generating a class from sample data
+
+If you have a sample payload for an unknown renderer, you can generate a class ahead of time using the `Generator` export:
+
+```ts
+import { Generator } from 'youtubei.js';
+
+const sampleData = {
+  title: { runs: [{ text: 'Example title' }] }
+};
+
+// Returns a class that extends YTNode
+const ExampleNode = Generator.generateRuntimeClass('ExampleNode', sampleData);
+
+const node = new ExampleNode(sampleData);
+const title = node.key('title').instanceof(Text).toString();
+```
+
+### Registering a custom class
+
+Use `Parser.addRuntimeParser()` to register your own `YTNode` subclass so the parser will instantiate it automatically when it encounters the matching renderer key:
+
+```ts
+import { Parser, YTNodes } from 'youtubei.js';
+import { YTNode } from 'youtubei.js/agnostic';
+
+class MyCustomNode extends YTNode {
+  static readonly type = 'MyCustomNode';
+  public title: string;
+
+  constructor(data: any) {
+    super();
+    this.title = data?.title?.simpleText ?? '';
+  }
+}
+
+Parser.addRuntimeParser('MyCustomNode', MyCustomNode);
+```
+
+After registration, any `myCustomNodeRenderer` in an InnerTube response will be parsed as a `MyCustomNode` instance.

@@ -1,0 +1,197 @@
+---
+title: 'Search YouTube with filters and suggestions'
+description: 'Query YouTube videos, channels, playlists, and shorts using search filters, features, and autocomplete suggestions with the InnerTube API.'
+keywords: ['search', 'filters', 'suggestions', 'autocomplete', 'pagination', 'youtubei.js']
+---
+
+The `search` method on an `Innertube` instance submits a query to YouTube's InnerTube search endpoint and returns a rich `Search` object. You can narrow results by content type, upload date, duration, and video features, and you can paginate through results using a built-in continuation mechanism.
+
+## Basic search
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create();
+
+const results = await yt.search('open source music');
+
+console.log('Estimated results:', results.estimated_results);
+
+for (const item of results.results) {
+  console.log(item.type, item);
+}
+```
+
+The `results` array is an `ObservedArray<YTNode>` — a typed array that exposes helper methods like `.filterType()` and `.firstOfType()` alongside standard array methods. Items in the array can be `Video`, `Channel`, `Playlist`, `Movie`, `Show`, `SearchRefinementCard`, or other node types depending on the query.
+
+## Filtering results with `SearchFilters`
+
+Pass a `SearchFilters` object as the second argument to `search()` to narrow the results.
+
+<ParamField body="type" type="'all' | 'video' | 'shorts' | 'channel' | 'playlist' | 'movie'">
+  Filter by content type. Defaults to `'all'`.
+</ParamField>
+
+<ParamField body="upload_date" type="'all' | 'today' | 'week' | 'month' | 'year'">
+  Restrict results to content uploaded within the specified window.
+</ParamField>
+
+<ParamField body="duration" type="'all' | 'under_three_mins' | 'three_to_twenty_mins' | 'over_twenty_mins'">
+  Filter by video length.
+</ParamField>
+
+<ParamField body="prioritize" type="'relevance' | 'popularity'">
+  Controls the ranking signal used to sort results.
+</ParamField>
+
+<ParamField body="features" type="Feature[]">
+  An array of one or more video features to require. See the full list below.
+</ParamField>
+
+```typescript
+const results = await yt.search('nature documentary', {
+  type: 'video',
+  upload_date: 'year',
+  duration: 'over_twenty_mins',
+  prioritize: 'relevance',
+  features: ['4k', 'hd']
+});
+```
+
+### Available features
+
+The `features` array accepts any combination of the following string values:
+
+| Feature value | Description |
+|---|---|
+| `'hd'` | High definition (720p or above) |
+| `'4k'` | Ultra HD (2160p) |
+| `'hdr'` | High dynamic range |
+| `'3d'` | Stereoscopic 3D video |
+| `'360'` | 360° video |
+| `'vr180'` | VR180 video |
+| `'live'` | Live streams or live-streamed events |
+| `'subtitles'` | Videos with closed captions |
+| `'creative_commons'` | Licensed under Creative Commons |
+| `'location'` | Tagged with a geographic location |
+| `'purchased'` | Purchased content |
+
+```typescript
+// Find live 4K HDR streams uploaded this week
+const results = await yt.search('concert live', {
+  type: 'video',
+  upload_date: 'week',
+  features: ['live', '4k', 'hdr']
+});
+```
+
+## The `Search` object
+
+<ResponseField name="results" type="ObservedArray<YTNode>">
+  Flat array of all result items across all `ItemSection` containers on the page.
+</ResponseField>
+
+<ResponseField name="estimated_results" type="number">
+  YouTube's estimated total result count for the query. This is an approximation.
+</ResponseField>
+
+<ResponseField name="header" type="SearchHeader | undefined">
+  The search header node, which includes the corrected query string when YouTube autocorrects a misspelling.
+</ResponseField>
+
+<ResponseField name="refinements" type="string[]">
+  Related search query suggestions provided by YouTube alongside the results.
+</ResponseField>
+
+<ResponseField name="sub_menu" type="SearchSubMenu | undefined">
+  The filter sub-menu node, which contains the currently active filter state.
+</ResponseField>
+
+<ResponseField name="watch_card" type="UniversalWatchCard | undefined">
+  Present for some queries (e.g., a specific TV show or film) — a rich card shown above the results.
+</ResponseField>
+
+<ResponseField name="refinement_cards" type="HorizontalCardList | null | undefined">
+  Horizontally scrollable cards that represent related searches or topic refinements.
+</ResponseField>
+
+## Pagination
+
+Call `getContinuation()` on the `Search` object to fetch the next page of results. The returned object is another `Search` instance.
+
+```typescript
+let page = await yt.search('jazz piano', { type: 'video' });
+
+// Process first page
+for (const item of page.results) {
+  console.log(item.type);
+}
+
+// Fetch the next page
+if (page.has_continuation) {
+  page = await page.getContinuation();
+
+  for (const item of page.results) {
+    console.log(item.type);
+  }
+}
+```
+
+<Note>
+  The `has_continuation` getter is inherited from `Feed` and indicates whether a continuation token exists. Always check it before calling `getContinuation()` to avoid an error.
+</Note>
+
+### Iterating all pages
+
+```typescript
+let page = await yt.search('lofi hip hop', { type: 'video' });
+
+while (true) {
+  for (const item of page.results) {
+    console.log(item.type, (item as any).title?.toString());
+  }
+
+  if (!page.has_continuation) break;
+  page = await page.getContinuation();
+}
+```
+
+## Refinement cards
+
+Some search results include a `HorizontalCardList` of `SearchRefinementCard` nodes that represent related searches. Use `selectRefinementCard` to navigate to one of them.
+
+```typescript
+const results = await yt.search('beatles');
+
+console.log('Available refinement cards:', results.refinement_card_queries);
+// e.g. ['Beatles songs', 'Beatles playlist', 'Beatles albums']
+
+if (results.refinement_cards) {
+  const refined = await results.selectRefinementCard('Beatles songs');
+  for (const item of refined.results) {
+    console.log(item.type);
+  }
+}
+```
+
+## Search suggestions
+
+`getSearchSuggestions` fetches autocomplete suggestions from YouTube's suggestion endpoint. It does not use the InnerTube API and returns a plain `string[]`.
+
+```typescript
+const suggestions = await yt.getSearchSuggestions('lofi');
+// e.g. ['lofi hip hop', 'lofi music', 'lofi girl', ...]
+
+console.log(suggestions);
+```
+
+Pass a `previous_query` string to get suggestions that take prior context into account — this mirrors the behavior of sequential queries in the YouTube search box.
+
+```typescript
+const contextual = await yt.getSearchSuggestions('piano', 'jazz');
+console.log(contextual);
+```
+
+<Tip>
+  `getSearchSuggestions` is a lightweight call — it hits the suggestion API rather than the InnerTube endpoint — so it is safe to call on every keystroke in an autocomplete UI.
+</Tip>

@@ -1,0 +1,194 @@
+---
+title: "Configure your Innertube session options"
+description: "Learn how to customize language, location, client type, safety mode, caching, and other session options when creating an Innertube instance."
+keywords: ["session", "configuration", "InnertubeConfig", "client type", "language", "po_token", "visitor_data"]
+---
+
+Every time you call `Innertube.create()`, YouTube.js initializes a `Session` — the central object that manages your HTTP client, request context, player data, and authentication state. You can pass a configuration object to `Innertube.create()` to control how that session is built: which language and region YouTube responds in, which client the session impersonates, whether to cache the session for faster startup, and more.
+
+## Basic usage
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  lang: 'en',
+  location: 'US',
+  generate_session_locally: true,
+});
+```
+
+If you call `Innertube.create()` with no arguments, YouTube.js uses sensible defaults: the WEB client, the system locale and time zone, and session data fetched from YouTube's servers.
+
+## Configuration options
+
+<ParamField body="lang" type="string">
+  The BCP 47 language tag for the session (e.g., `"en"`, `"pt-BR"`, `"ja"`). Controls the language of titles, descriptions, and other text returned by the API. Defaults to the language reported by YouTube's servers.
+</ParamField>
+
+<ParamField body="location" type="string">
+  The ISO 3166-1 alpha-2 country code for the session (e.g., `"US"`, `"GB"`, `"DE"`). Affects region-restricted content availability and which results YouTube returns. Defaults to the location reported by YouTube's servers.
+</ParamField>
+
+<ParamField body="timezone" type="string">
+  The IANA time zone identifier for the session (e.g., `"America/New_York"`, `"Europe/Berlin"`). Defaults to the system time zone via `Intl.DateTimeFormat().resolvedOptions().timeZone`.
+</ParamField>
+
+<ParamField body="device_category" type="string" default="desktop">
+  The device form factor to report in the request context. Accepted values: `"desktop"`, `"mobile"`, `"tv"`. This value becomes the `platform` field in InnerTube's context.
+</ParamField>
+
+<ParamField body="client_type" type="ClientType" default="ClientType.WEB">
+  The InnerTube client to impersonate. Different clients expose different API surfaces and content. Available values:
+
+  | Value | InnerTube name |
+  |---|---|
+  | `ClientType.WEB` | `WEB` |
+  | `ClientType.MWEB` | `MWEB` |
+  | `ClientType.KIDS` | `WEB_KIDS` |
+  | `ClientType.MUSIC` | `WEB_REMIX` |
+  | `ClientType.IOS` | `iOS` |
+  | `ClientType.ANDROID` | `ANDROID` |
+  | `ClientType.ANDROID_VR` | `ANDROID_VR` |
+  | `ClientType.ANDROID_MUSIC` | `ANDROID_MUSIC` |
+  | `ClientType.ANDROID_CREATOR` | `ANDROID_CREATOR` |
+  | `ClientType.TV` | `TVHTML5` |
+  | `ClientType.TV_SIMPLY` | `TVHTML5_SIMPLY` |
+  | `ClientType.TV_EMBEDDED` | `TVHTML5_SIMPLY_EMBEDDED_PLAYER` |
+  | `ClientType.WEB_EMBEDDED` | `WEB_EMBEDDED_PLAYER` |
+  | `ClientType.WEB_CREATOR` | `WEB_CREATOR` |
+</ParamField>
+
+<ParamField body="enable_safety_mode" type="boolean" default="false">
+  When `true`, the session's request context sets `enableSafetyMode` to restrict potentially unsafe content. This maps directly to the `user.enableSafetyMode` field in the InnerTube context.
+</ParamField>
+
+<ParamField body="generate_session_locally" type="boolean" default="false">
+  When `true`, YouTube.js skips the request to YouTube's servers and builds the session context from hardcoded defaults. This makes session creation faster at the cost of potentially stale client version strings. If a valid cached session exists, this option is ignored.
+</ParamField>
+
+<ParamField body="enable_session_cache" type="boolean" default="true">
+  Controls whether the session data (client context, API key, API version) is persisted to and loaded from the provided `cache`. Requires a `cache` implementation to have any effect.
+</ParamField>
+
+<ParamField body="fail_fast" type="boolean" default="false">
+  When `true`, session creation throws an error if it cannot fetch session data from YouTube's servers, instead of falling back to a locally generated session.
+</ParamField>
+
+<ParamField body="visitor_data" type="string">
+  A persistent visitor data string that allows YouTube to associate this session with a known visitor, enabling tailored content recommendations even without sign-in. You can obtain one by extracting it from a browser or calling YouTube's `/visitor_id` endpoint.
+</ParamField>
+
+<ParamField body="po_token" type="string">
+  A session-bound Proof of Origin Token (PoToken). This is an attestation token produced by BotGuard/DroidGuard that YouTube uses to verify the request comes from a legitimate client. See the [po_token guide](/guides/po-token) for details.
+</ParamField>
+
+<ParamField body="cookie" type="string">
+  A raw YouTube cookie string for cookie-based authentication. When provided, the session's `logged_in` property is set to `true`. See the [authentication guide](/guides/authentication) for more information.
+</ParamField>
+
+<ParamField body="on_behalf_of_user" type="string">
+  The Page ID of a YouTube channel or profile to act on behalf of when the authenticated account manages multiple channels. This sets `user.onBehalfOfUser` in the InnerTube context.
+</ParamField>
+
+<ParamField body="account_index" type="number" default="0">
+  When signed in with cookies for an account that has multiple Google accounts in the same session, this selects which account index to use.
+</ParamField>
+
+<ParamField body="retrieve_player" type="boolean" default="true">
+  When `false`, YouTube.js skips downloading and parsing the YouTube JS player. This makes session creation significantly faster, but format deciphering becomes unavailable — you will not be able to stream or download video/audio.
+</ParamField>
+
+<ParamField body="cache" type="ICache">
+  A cache implementation used to store session data, the parsed player, and OAuth2 tokens between runs. YouTube.js ships `UniversalCache` which provides both in-memory and file-based persistence. See the [caching guide](/guides/caching).
+</ParamField>
+
+<ParamField body="fetch" type="FetchFunction">
+  A custom `fetch`-compatible function to use for all HTTP requests made by this session. Useful for proxying requests, adding global headers, or running in environments without a native `fetch`.
+</ParamField>
+
+<ParamField body="user_agent" type="string">
+  The User-Agent string sent with InnerTube requests. Defaults to a randomly selected desktop browser user agent.
+</ParamField>
+
+<ParamField body="player_id" type="string">
+  Overrides the player ID used when fetching the YouTube JS player. In most cases this is not needed, but it can work around temporary breakage when YouTube introduces breaking player changes.
+</ParamField>
+
+## Examples
+
+### Localized session
+
+Use `lang` and `location` to get responses in a specific language and region.
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  lang: 'ja',
+  location: 'JP',
+  timezone: 'Asia/Tokyo',
+});
+```
+
+### Faster startup without the player
+
+If you only need metadata and do not need to download streams, skip the player fetch.
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  retrieve_player: false,
+  generate_session_locally: true,
+});
+```
+
+### Specific client type
+
+Some API features are only available on certain clients. Use `ClientType` to change the impersonated client.
+
+```typescript
+import { Innertube, ClientType } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  client_type: ClientType.TV,
+});
+```
+
+### Custom fetch for proxying
+
+Provide a custom `fetch` function to route all requests through a proxy or add custom headers.
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  fetch: async (input, init) => {
+    // add a custom header to every request
+    const headers = new Headers(init?.headers);
+    headers.set('X-My-Header', 'value');
+    return fetch(input, { ...init, headers });
+  },
+});
+```
+
+### Persistent visitor data
+
+Providing a stable `visitor_data` string lets YouTube associate requests with a known visitor profile, improving content recommendations.
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  visitor_data: 'CgtZb3VyVmlzaXRvcjEiEwj...',
+});
+```
+
+<Tip>
+  Combine `generate_session_locally: true` with a `cache` and `enable_session_cache: true` for the fastest possible repeated startup — the first run fetches and caches the session; subsequent runs load it from cache in milliseconds.
+</Tip>
+
+<Warning>
+  Setting `retrieve_player: false` disables format deciphering. Calls to methods that stream or download media will fail without a parsed player.
+</Warning>

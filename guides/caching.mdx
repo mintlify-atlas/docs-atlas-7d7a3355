@@ -1,0 +1,172 @@
+---
+title: "Cache sessions and player data with YouTube.js"
+description: "Use UniversalCache to persist session context and the parsed YouTube player across restarts, reducing startup time and avoiding redundant network requests."
+keywords: ["cache", "UniversalCache", "ICache", "session cache", "player cache", "generate_session_locally", "persistent cache"]
+---
+
+By default, every call to `Innertube.create()` makes at least two network requests: one to fetch the session context from YouTube's servers, and one to download and parse the YouTube JS player (needed for format deciphering). On a cold start this can add several seconds of latency. `UniversalCache` solves this by persisting both artifacts between runs so they only need to be fetched once.
+
+## What gets cached
+
+When you provide a cache to `Innertube.create()`, YouTube.js stores and reloads:
+
+- **Session data** — the InnerTube client context, API key, and API version, keyed as `innertube_session_data`.
+- **Player data** — the parsed YouTube JS player (signature deciphering logic and n-token transform), keyed as `youtubei_player`.
+- **OAuth2 credentials** — access and refresh tokens, keyed as `youtubei_oauth_credentials` (only when you call `oauth.cacheCredentials()`).
+
+Cached session data is validated against the current library major version. If the version has changed, YouTube.js discards the cached data and regenerates it automatically.
+
+## UniversalCache
+
+`UniversalCache` is the built-in cache implementation. It accepts a `persistent` boolean that controls whether data is stored in memory or written to disk.
+
+```typescript
+import { UniversalCache } from 'youtubei.js';
+
+// In-memory cache — data is lost when the process exits
+const memoryCache = new UniversalCache(false);
+
+// File-based cache — data persists to disk across restarts
+const fileCache = new UniversalCache(true);
+
+// File-based cache with a custom directory
+const customCache = new UniversalCache(true, '/var/cache/myapp');
+```
+
+<Note>
+  In-memory caching is still useful within a single process. If your application creates multiple `Innertube` instances (for example, in a web server handling concurrent requests), sharing a single `UniversalCache` instance avoids redundant player fetches.
+</Note>
+
+## Using the cache with Innertube.create()
+
+Pass the cache instance via the `cache` option. Session caching is enabled by default when a cache is provided (`enable_session_cache` defaults to `true`).
+
+<CodeGroup>
+
+```typescript In-memory cache
+import { Innertube, UniversalCache } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  cache: new UniversalCache(false),
+});
+```
+
+```typescript Persistent file cache
+import { Innertube, UniversalCache } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  cache: new UniversalCache(true),
+});
+```
+
+```typescript Custom cache directory
+import { Innertube, UniversalCache } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  cache: new UniversalCache(true, '/var/cache/myapp'),
+});
+```
+
+</CodeGroup>
+
+On the **first run**, YouTube.js fetches both the session data and the player, then writes them to the cache. On every **subsequent run**, they are loaded from cache and the network requests are skipped entirely.
+
+## Disabling session caching selectively
+
+Set `enable_session_cache: false` to use a cache for OAuth2 tokens and the player, but always regenerate the session context from the network:
+
+```typescript
+import { Innertube, UniversalCache } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  cache: new UniversalCache(true),
+  enable_session_cache: false,
+});
+```
+
+## generate_session_locally
+
+The `generate_session_locally` option is a related but distinct performance lever. When `true`, YouTube.js skips the network request to YouTube's servers entirely and builds the session context from hardcoded defaults — no cache read or write is involved.
+
+```typescript
+import { Innertube, UniversalCache } from 'youtubei.js';
+
+// Skip server round-trip; build context from local defaults
+const yt = await Innertube.create({
+  generate_session_locally: true,
+});
+```
+
+Use `generate_session_locally` when you want the fastest possible session creation and do not need the most up-to-date client version strings from YouTube's servers. If a valid cached session already exists, this option is ignored — the cache takes precedence.
+
+The recommended pattern for long-running applications is to combine a persistent cache with `generate_session_locally: false` (the default). The first run fetches and caches a real session; all subsequent runs load from cache in milliseconds.
+
+```typescript
+import { Innertube, UniversalCache } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  cache: new UniversalCache(true),
+  // generate_session_locally defaults to false;
+  // first run hits the network, subsequent runs use cache
+});
+```
+
+## Custom cache implementations
+
+If `UniversalCache` does not fit your environment — for example, you want to store cached data in Redis, a database, or a different file format — you can implement the `ICache` interface.
+
+```typescript
+import type { ICache } from 'youtubei.js';
+
+class RedisCache implements ICache {
+  cache_dir = '';
+
+  constructor(private client: RedisClient) {}
+
+  async get(key: string): Promise<ArrayBuffer | undefined> {
+    const value = await this.client.getBuffer(key);
+    if (!value) return undefined;
+    return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+  }
+
+  async set(key: string, value: ArrayBuffer): Promise<void> {
+    await this.client.set(key, Buffer.from(value));
+  }
+
+  async remove(key: string): Promise<void> {
+    await this.client.del(key);
+  }
+}
+```
+
+Pass your custom implementation wherever `ICache` is accepted:
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  cache: new RedisCache(redisClient),
+});
+```
+
+### ICache interface reference
+
+<ResponseField name="cache_dir" type="string" required>
+  A string identifying the cache's storage location. For file-based implementations, this is the directory path. For non-file caches, set this to an empty string or a descriptive identifier.
+</ResponseField>
+
+<ResponseField name="get(key)" type="Promise<ArrayBuffer | undefined>" required>
+  Retrieve a cached value by key. Return `undefined` if the key does not exist.
+</ResponseField>
+
+<ResponseField name="set(key, value)" type="Promise<void>" required>
+  Store a value under the given key. The value is always an `ArrayBuffer`.
+</ResponseField>
+
+<ResponseField name="remove(key)" type="Promise<void>" required>
+  Delete the entry for the given key. Should resolve without error even if the key does not exist.
+</ResponseField>
+
+<Tip>
+  Caching is most impactful in environments where session creation runs frequently — serverless functions, CLI tools, and test suites. A persistent cache can reduce cold-start time from several seconds to under 100 ms.
+</Tip>

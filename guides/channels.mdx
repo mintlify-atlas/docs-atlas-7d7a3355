@@ -1,0 +1,258 @@
+---
+title: 'Browse channel pages and their content'
+description: 'Access channel metadata, navigate tabs for videos, Shorts, live streams, playlists, and community posts, and filter or sort content listings.'
+keywords: ['channel', 'browse', 'tabs', 'videos', 'shorts', 'community', 'playlists', 'youtubei.js']
+---
+
+youtubei.js models a YouTube channel page as a `Channel` object that mirrors the tab structure you see in the browser. You can navigate between the Videos, Shorts, Live, Playlists, Community, and About tabs, apply filters, sort content, and search within the channel — all using strongly typed methods and continuations.
+
+## Fetching a channel
+
+Pass a channel ID (the `UC…` identifier) to `getChannel`. The method handles redirect responses automatically, so IDs that resolve to a different browse ID are followed transparently.
+
+```typescript
+import { Innertube } from 'youtubei.js';
+
+const yt = await Innertube.create();
+
+const channel = await yt.getChannel('UCX6OQ3DkcsbYNE6H8uQQuVA');
+```
+
+<Note>
+  If the channel ID is invalid or the channel has been terminated, `getChannel` throws a `ChannelError`.
+</Note>
+
+## Reading channel metadata
+
+The `metadata` property merges `ChannelMetadata` and `MicroformatData` into a single object.
+
+```typescript
+import { YTNodes } from 'youtubei.js';
+
+const channel = await yt.getChannel('UCX6OQ3DkcsbYNE6H8uQQuVA');
+
+if (channel.header?.is(YTNodes.C4TabbedHeader)) {
+  console.log('Name:', channel.header.author.name);
+  console.log('Subscribers:', channel.header.subscribers_count?.toString());
+}
+
+console.log('Family safe:', channel.metadata.is_family_safe);
+console.log('External ID:', channel.metadata.external_id);
+```
+
+### Available tabs
+
+Check which tabs exist before navigating to them:
+
+| Getter | Description |
+|---|---|
+| `channel.has_home` | Featured/Home tab |
+| `channel.has_videos` | Videos tab |
+| `channel.has_shorts` | Shorts tab |
+| `channel.has_live_streams` | Live streams tab |
+| `channel.has_releases` | Releases tab |
+| `channel.has_podcasts` | Podcasts tab |
+| `channel.has_courses` | Courses tab |
+| `channel.has_playlists` | Playlists tab |
+| `channel.has_community` | Community posts tab |
+| `channel.has_about` | About section |
+| `channel.has_search` | Channel search |
+
+## Navigating tabs
+
+Each tab method fetches that tab's content and returns a new `Channel` instance.
+
+<CodeGroup>
+
+```typescript Videos tab
+const videos = await channel.getVideos();
+
+for (const video of videos.videos) {
+  console.log(video.title.toString());
+}
+```
+
+```typescript Shorts tab
+const shorts = await channel.getShorts();
+
+for (const short of shorts.shorts) {
+  console.log(short.title?.toString());
+}
+```
+
+```typescript Live streams tab
+const live = await channel.getLiveStreams();
+
+for (const stream of live.videos) {
+  console.log(stream.title.toString());
+}
+```
+
+```typescript Playlists tab
+const playlists = await channel.getPlaylists();
+
+for (const playlist of playlists.playlists) {
+  console.log(playlist.title.toString());
+}
+```
+
+</CodeGroup>
+
+## Filtering and sorting content
+
+### Chip-bar filters
+
+The Videos tab (and some others) expose a `FeedFilterChipBar` with filter chips — for example "Latest", "Popular", "Oldest".
+
+```typescript
+const videos = await channel.getVideos();
+
+// List available filters
+console.log('Filters:', videos.filters);
+// e.g. ['Latest', 'Popular', 'Oldest']
+
+// Apply a filter — returns a FilteredChannelList
+const popular = await videos.applyFilter('Popular');
+
+for (const video of popular.videos) {
+  console.log(video.title.toString());
+}
+
+// FilteredChannelList also supports getContinuation()
+if (popular.has_continuation) {
+  const next = await popular.getContinuation();
+}
+```
+
+### Sort filters
+
+Some tabs expose a `SortFilterSubMenu` for sort order (e.g. "Date added", "Most popular").
+
+```typescript
+const playlists = await channel.getPlaylists();
+
+console.log('Sort options:', playlists.sort_filters);
+
+const sorted = await playlists.applySort('Date added');
+```
+
+### Content-type sub-menu
+
+The Playlists tab may include a `ChannelSubMenu` to filter by content type (e.g., "Created playlists", "Single videos").
+
+```typescript
+const playlists = await channel.getPlaylists();
+
+console.log('Content type filters:', playlists.content_type_filters);
+
+const singleVideos = await playlists.applyContentTypeFilter('Single videos');
+```
+
+## Community posts
+
+```typescript
+const community = await channel.getCommunity();
+
+for (const post of community.posts) {
+  console.log(post.content.toString().substring(0, 100));
+}
+```
+
+## About page
+
+`getAbout()` does not return a `Channel` — it returns `ChannelAboutFullMetadata` or `AboutChannel` depending on the channel type.
+
+```typescript
+const about = await channel.getAbout();
+
+console.log('Country:', about.country?.toString());
+console.log('Description:', about.description?.toString());
+```
+
+## Searching within a channel
+
+Use the `search` method on an existing `Channel` instance to submit a query scoped to that channel's content.
+
+```typescript
+const channel = await yt.getChannel('UCX6OQ3DkcsbYNE6H8uQQuVA');
+
+const results = await channel.search('tutorial');
+
+for (const item of results.current_tab?.content?.contents || []) {
+  console.log(item.type);
+}
+```
+
+## Pagination
+
+The `Channel` class uses the `Feed` continuation system. Call `getContinuation()` to fetch the next batch of items and receive a `ChannelListContinuation`.
+
+```typescript
+const videos = await channel.getVideos();
+
+if (videos.has_continuation) {
+  const cont = await videos.getContinuation();
+  console.log(cont.contents); // AppendContinuationItemsAction
+}
+```
+
+## Feed methods for logged-in users
+
+The following methods on the `Innertube` instance return the feeds shown on the YouTube home page sidebar — they require an active session.
+
+```typescript
+// Your subscription feed (/feed/subscriptions)
+const subscriptions = await yt.getSubscriptionsFeed();
+
+// Channels you're subscribed to (/feed/channels)
+const channelsFeed = await yt.getChannelsFeed();
+
+// Home feed (/feed)
+const homeFeed = await yt.getHomeFeed();
+```
+
+<Info>
+  These feeds return a generic `Feed<IBrowseResponse>` and support `getContinuationData()` for pagination, but they do not expose the channel-specific tab methods.
+</Info>
+
+## Full example
+
+```typescript
+import { Innertube, UniversalCache, YTNodes } from 'youtubei.js';
+
+const yt = await Innertube.create({
+  cache: new UniversalCache(false),
+  generate_session_locally: true
+});
+
+const channel = await yt.getChannel('UCX6OQ3DkcsbYNE6H8uQQuVA');
+
+if (channel.header?.is(YTNodes.C4TabbedHeader)) {
+  console.log('Channel:', channel.header.author.name);
+}
+
+const about = await channel.getAbout();
+console.log('Country:', about.country.toString());
+
+// Videos tab with filter
+const videos = await channel.getVideos();
+const popular = await videos.applyFilter('Popular');
+
+for (const video of popular.videos) {
+  console.log('-', video.title.toString());
+}
+
+// Playlists tab
+const playlists = await channel.getPlaylists();
+for (const playlist of playlists.playlists) {
+  console.log('-', playlist.title.toString());
+}
+
+// Community posts
+if (channel.has_community) {
+  const community = await channel.getCommunity();
+  for (const post of community.posts) {
+    console.log('-', post.content.toString().substring(0, 40) + '...');
+  }
+}
+```

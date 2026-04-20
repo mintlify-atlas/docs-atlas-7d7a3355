@@ -1,0 +1,219 @@
+---
+title: "Get started with YouTube.js"
+description: "Create an Innertube session and make your first API calls: search YouTube, retrieve video info, and download audio or video in under 30 lines of code."
+keywords: ['quickstart', 'youtubei.js', 'innertube', 'tutorial', 'first steps']
+---
+
+This guide walks you through the essential steps to go from a fresh install to running real YouTube API calls. By the end you will have a working script that creates a session, searches for videos, retrieves video metadata, and downloads a stream.
+
+<Note>
+  Make sure you have installed `youtubei.js` before continuing. See [Installation](/getting-started/installation) if you haven't done that yet.
+</Note>
+
+<Steps>
+  <Step title="Create an Innertube session">
+    Every interaction with YouTube starts by creating an `Innertube` instance. The static `Innertube.create()` method fetches session context from YouTube (API keys, client version, visitor data) and initializes the JS player used for deciphering stream URLs.
+
+    ```typescript
+    import { Innertube } from 'youtubei.js';
+
+    const yt = await Innertube.create();
+    ```
+
+    `Innertube.create()` accepts an optional configuration object. For faster startup in scripts and tests, use `generate_session_locally: true` to skip the network round-trip for session data:
+
+    ```typescript
+    import { Innertube, UniversalCache } from 'youtubei.js';
+
+    const yt = await Innertube.create({
+      generate_session_locally: true,  // Build session context locally instead of fetching it
+      cache: new UniversalCache(false), // In-memory cache for player scripts
+    });
+    ```
+
+    <Tip>
+      Reuse the same `yt` instance across requests in long-running applications. Creating a new session for every call is wasteful and slower.
+    </Tip>
+  </Step>
+
+  <Step title="Search for videos">
+    Call `yt.search()` with a query string to search YouTube. The result is a `Search` object with a `videos` array and helper methods to load more results.
+
+    ```typescript
+    const results = await yt.search('lofi hip hop radio');
+
+    for (const video of results.videos) {
+      console.log(video.title?.toString(), '-', video.id);
+    }
+    ```
+
+    You can narrow results with filters. The `type` filter accepts `'video'`, `'channel'`, `'playlist'`, or `'movie'`. The `upload_date`, `duration`, and `features` filters let you refine further:
+
+    ```typescript
+    const results = await yt.search('TypeScript tutorial', {
+      type: 'video',
+      upload_date: 'year',   // 'hour' | 'today' | 'week' | 'month' | 'year'
+      duration: 'long',      // 'short' | 'medium' | 'long'
+      features: ['hd'],      // 'hd' | '4k' | 'live' | 'subtitles' | 'creative_commons' | ...
+    });
+    ```
+
+    To fetch the next page of results:
+
+    ```typescript
+    if (results.has_continuation) {
+      const nextPage = await results.getContinuation();
+    }
+    ```
+  </Step>
+
+  <Step title="Get video info">
+    Use `yt.getBasicInfo()` to retrieve metadata for a single video by its ID. This is a lighter call than `yt.getInfo()` — it fetches the player response only, without the watch-next sidebar data.
+
+    ```typescript
+    const info = await yt.getBasicInfo('dQw4w9WgXcQ');
+
+    console.log('Title:', info.basic_info.title);
+    console.log('Channel:', info.basic_info.channel?.name);
+    console.log('Duration:', info.basic_info.duration, 'seconds');
+    console.log('Views:', info.basic_info.view_count);
+    console.log('Likes:', info.basic_info.like_count);
+    ```
+
+    Use `yt.getInfo()` when you also need the related videos sidebar, chapters, or engagement panel data:
+
+    ```typescript
+    const info = await yt.getInfo('dQw4w9WgXcQ');
+
+    // Access the description from secondary info
+    console.log(info.secondary_info?.description.toString());
+    ```
+  </Step>
+
+  <Step title="Get a streaming URL">
+    To retrieve a direct, deciphered streaming URL without downloading the full file, use `yt.getStreamingData()`. This is useful when you want to pass the URL to a media player.
+
+    ```typescript
+    const format = await yt.getStreamingData('dQw4w9WgXcQ', {
+      type: 'audio',    // 'audio' | 'video' | 'video+audio'
+      quality: 'best',  // 'best' | 'bestefficiency' | '144p' | '240p' | '480p' | '720p' | ...
+      format: 'mp4',    // media container format
+    });
+
+    console.log('Stream URL:', format.url);
+    console.log('MIME type:', format.mime_type);
+    ```
+  </Step>
+
+  <Step title="Download a video or audio track">
+    `yt.download()` returns a `ReadableStream<Uint8Array>` that you can pipe to a file, HTTP response, or any other writable destination.
+
+    ```typescript
+    import { Innertube, UniversalCache, Utils } from 'youtubei.js';
+    import { createWriteStream } from 'fs';
+
+    const yt = await Innertube.create({
+      cache: new UniversalCache(false),
+      generate_session_locally: true,
+    });
+
+    const stream = await yt.download('dQw4w9WgXcQ', {
+      type: 'audio',    // download audio only
+      quality: 'best',
+      format: 'mp4',
+    });
+
+    const file = createWriteStream('./audio.m4a');
+
+    for await (const chunk of Utils.streamToIterable(stream)) {
+      file.write(chunk);
+    }
+
+    file.end();
+    console.log('Download complete.');
+    ```
+
+    `Utils.streamToIterable()` converts the `ReadableStream` to an async iterable, which is more ergonomic to consume in Node.js with `for await...of`.
+  </Step>
+</Steps>
+
+## Complete example
+
+The following script combines all of the above into a single runnable file. It searches YouTube Music for an album and downloads all its tracks.
+
+```typescript
+import { Innertube, UniversalCache, Utils } from 'youtubei.js';
+import { existsSync, mkdirSync, createWriteStream } from 'fs';
+
+const yt = await Innertube.create({
+  cache: new UniversalCache(false),
+  generate_session_locally: true,
+});
+
+// Search YouTube Music for an album
+const search = await yt.music.search('No Copyright Background Music', { type: 'album' });
+
+if (!search.results) throw new Error('No results found');
+
+const album = await yt.music.getAlbum(search.results[0].id as string);
+
+if (!album.contents) throw new Error('Album appears to be empty');
+
+console.log(`Album: ${album.header?.title.toString()}`);
+
+for (const song of album.contents) {
+  const stream = await yt.download(song.id as string, {
+    type: 'audio',
+    quality: 'best',
+    format: 'mp4',
+    client: 'YTMUSIC',
+  });
+
+  const dir = `./${album.header?.title.toString()}`;
+  if (!existsSync(dir)) mkdirSync(dir);
+
+  const filename = `${dir}/${song.title?.replace(/\//g, '')}.m4a`;
+  const file = createWriteStream(filename);
+
+  for await (const chunk of Utils.streamToIterable(stream)) {
+    file.write(chunk);
+  }
+
+  console.log(`Downloaded: ${song.title} (${song.id})`);
+}
+
+console.log('Done!');
+```
+
+## Quick reference
+
+| Method | Returns | Description |
+|---|---|---|
+| `Innertube.create(options?)` | `Promise<Innertube>` | Creates an authenticated session |
+| `yt.search(query, filters?)` | `Promise<Search>` | Searches YouTube with optional filters |
+| `yt.getBasicInfo(videoId)` | `Promise<VideoInfo>` | Fetches video metadata (player response only) |
+| `yt.getInfo(videoId)` | `Promise<VideoInfo>` | Fetches full video page including sidebar |
+| `yt.getStreamingData(videoId, options?)` | `Promise<Format>` | Returns a deciphered stream URL |
+| `yt.download(videoId, options?)` | `Promise<ReadableStream>` | Downloads a video or audio stream |
+| `yt.getChannel(id)` | `Promise<Channel>` | Fetches a channel page |
+| `yt.getPlaylist(id)` | `Promise<Playlist>` | Fetches a playlist |
+| `yt.getComments(videoId)` | `Promise<Comments>` | Fetches video comments |
+| `yt.music` | `Music` | YouTube Music client |
+| `yt.studio` | `Studio` | YouTube Studio client |
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Session configuration" icon="sliders" href="/guides/session-configuration">
+    Learn how to configure language, location, caching, cookies, and the InnerTube client type.
+  </Card>
+  <Card title="Authentication" icon="lock" href="/guides/authentication">
+    Sign in via OAuth2 to access watch history, subscriptions, and account management.
+  </Card>
+  <Card title="Video info and download" icon="play" href="/guides/video-info-and-download">
+    Explore the full VideoInfo object, format selection, and DASH manifest generation.
+  </Card>
+  <Card title="YouTube Music" icon="music" href="/guides/youtube-music">
+    Use the Music client to search tracks, fetch albums, artists, and playlists.
+  </Card>
+</CardGroup>
